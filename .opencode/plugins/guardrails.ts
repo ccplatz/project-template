@@ -1,6 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 
-const CHECK_SCRIPT = "./guardrails-check.sh"
+const CHECK_SCRIPT = "./bin/guardrails-check"
 
 const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; explanation: string }> = [
     { pattern: /\brm\s+-rf\s+\//, explanation: "rm -rf / would wipe the entire filesystem" },

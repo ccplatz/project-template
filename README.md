@@ -8,7 +8,6 @@ configuration files, and OpenCode setup.
 ### OpenCode setup
 - `opencode.json` — OpenCode configuration with Superpowers plugin
 - `AGENTS.md` — Agent Guide (to be filled in per project)
-- `templates/AGENTS.template.md` — Annotated reference template for AGENTS.md
 - `.opencode/plugins/guardrails.ts` — Automated guardrails plugin (file-edited, tool-execute-before, session-idle hooks)
 
 ### Container management (`bin/container`)
@@ -57,7 +56,7 @@ Only one worktree stack can run at a time (shared port `:8080`).
 - `.prettierrc` — Prettier with PHP plugin
 - `.shellcheckrc` — ShellCheck configuration
 - `.dockerignore` — Docker build exclusions
-- `templates/.env.template` — environment variable template
+- `.env.template` — environment variable template
 
 ### Project instructions (`docs/instructions/`)
 
@@ -85,18 +84,11 @@ Permanent documentation for design rationale and implementation history:
   consult when modifying existing features.
 - `plans/` — Step-by-step implementation plans. Artifacts of completed or in-progress work.
 
-### Evals (`evals/`)
-
-Evaluations for AI agent behavior (distinct from tests). While tests verify
-deterministic outputs, evals verify the non-deterministic parts: did the agent
-take the right steps, choose the right tools, and follow conventions? Fill in
-when ready to move from vibe coding to agentic engineering.
-
 ### Tests
 - `tests/bin/container_test.sh` — unit tests for the container script
 - `tests/bin/worktree_test.sh` — unit tests for the worktree script
 
-### Guardrails (`guardrails-check.sh`)
+### Guardrails (`bin/guardrails-check`)
 
 Automated code quality and security checks for Laravel/Tailwind/TypeScript projects.
 Runs 6 checks on every validation:
@@ -109,9 +101,9 @@ Runs 6 checks on every validation:
 - **phpstan_ignored** — warns on `@phpstan-ignore` (verify justification)
 
 ```sh
-./guardrails-check.sh               # default: color output, exit 1 on failures
-./guardrails-check.sh --ci          # machine-readable: FILE:LINE:CHECK:VIOLATION
-./guardrails-check.sh --warn        # always exit 0 (warnings only)
+./bin/guardrails-check               # default: color output, exit 1 on failures
+./bin/guardrails-check --ci          # machine-readable: FILE:LINE:CHECK:VIOLATION
+./bin/guardrails-check --warn        # always exit 0 (warnings only)
 ```
 
 Each check can be toggled on/off in the CONFIG block at the top of the script.
@@ -138,7 +130,7 @@ sed -i "s/<PROJEKTNAME>/$PROJECT/g" \
     bin/container \
     bin/worktree \
     bin/worktree-lib.sh \
-    templates/.env.template \
+    .env.template \
     tests/bin/container_test.sh \
     tests/bin/worktree_test.sh
 ```

@@ -48,7 +48,7 @@ automatically stops the current stack before starting the target.
 
 ## Validation flow (run in order)
 
-0. `./guardrails-check.sh` — automated code quality & security guardrails (see `.opencode/plugins/guardrails.ts`)
+0. `./bin/guardrails-check` — automated code quality & security guardrails (see `.opencode/plugins/guardrails.ts`)
 1. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan test` — PHPUnit (feature + unit)
 2. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail composer check` — PHPStan + Pint (format)
 3. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend-Tests (Vitest o.ä.) -->
