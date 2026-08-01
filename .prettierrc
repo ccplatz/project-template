@@ -1,0 +1,13 @@
+{
+    "plugins": [
+        "@prettier/plugin-php"
+    ],
+    "printWidth": 100,
+    "tabWidth": 4,
+    "useTabs": false,
+    "singleQuote": true,
+    "semi": true,
+    "trailingComma": "es5",
+    "arrowParens": "avoid",
+    "bracketSpacing": true
+}
