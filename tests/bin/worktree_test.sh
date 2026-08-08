@@ -381,6 +381,32 @@ assert_not_exists "$lock_dir"
 rm -f "$state_dir/lock-test.env"
 git -C "$repo" worktree remove -f "$repo/.worktrees/lock-test"
 
+git -C "$repo" worktree add -q -b busy-8080 "$repo/.worktrees/busy-8080"
+printf 'APP_KEY=base64:busy-8080\n' > "$repo/.worktrees/busy-8080/.env"
+cp "$repo/compose.yaml" "$repo/.worktrees/busy-8080/compose.yaml"
+printf '8080\n' > "$busy_ports"
+assert_status 0 ensure_worktree_state busy-8080 "$repo/.worktrees/busy-8080"
+assert_status 0 load_worktree_state busy-8080
+assert_eq 8090 "$WORKTREE_STATE_APP_PORT" 'a busy 8080 selects the next complete HTTP group'
+assert_eq 5183 "$WORKTREE_STATE_VITE_PORT" 'a busy 8080 keeps the Vite offset within the group'
+assert_eq 3316 "$WORKTREE_STATE_DB_PORT" 'a busy 8080 keeps the database offset within the group'
+assert_eq 6389 "$WORKTREE_STATE_REDIS_PORT" 'a busy 8080 keeps the Redis offset within the group'
+git -C "$repo" worktree remove -f "$repo/.worktrees/busy-8080"
+rm -f "$state_dir/busy-8080.env"
+
+git -C "$repo" worktree add -q -b no-state-start "$repo/.worktrees/no-state-start"
+printf 'APP_KEY=base64:no-state-start\n' > "$repo/.worktrees/no-state-start/.env"
+cp "$repo/compose.yaml" "$repo/.worktrees/no-state-start/compose.yaml"
+: > "$MOCK_SAIL_LOG"
+: > "$busy_ports"
+export MOCK_STACK_RUNNING=0
+assert_status 0 start_for_worktree no-state-start "$repo/.worktrees/no-state-start"
+assert_contains "$MOCK_SAIL_LOG" 'COMPOSE_PROJECT_NAME=test-project'
+assert_not_contains "$MOCK_SAIL_LOG" 'COMPOSE_PROJECT_NAME=test-project-no-state-start'
+assert_contains "$MOCK_SAIL_LOG" "SAIL_SOURCE_PATH=$repo/.worktrees/no-state-start"
+assert_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
+git -C "$repo" worktree remove -f "$repo/.worktrees/no-state-start"
+
 : > "$MOCK_SAIL_LOG"
 export MOCK_STACK_RUNNING=0
 assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"

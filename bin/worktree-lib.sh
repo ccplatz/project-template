@@ -506,7 +506,12 @@ start_for_worktree() {
         name=$(basename "$1")
     fi
     sail_bin=${SAIL_BIN:-$path/vendor/bin/sail}
-    load_worktree_state "$name" || return 1
+    if [ -f "$(worktree_state_path "$name")" ]; then
+        load_worktree_state "$name" || return 1
+    else
+        unset WORKTREE_STATE_NAME WORKTREE_STATE_COMPOSE_PROJECT_NAME WORKTREE_STATE_APP_PORT \
+            WORKTREE_STATE_VITE_PORT WORKTREE_STATE_DB_PORT WORKTREE_STATE_REDIS_PORT
+    fi
 
     if [ ! -d "$path/vendor/laravel/sail" ]; then
         sail_bin="$worktree_root/vendor/bin/sail"
