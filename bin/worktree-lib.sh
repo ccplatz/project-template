@@ -349,6 +349,31 @@ run_sail() {
     "${SAIL_BIN:-./vendor/bin/sail}" "$@"
 }
 
+run_worktree_sail() {
+    local name=$1
+    local path=$2
+    local sail_bin=$3
+    local mysql_init_script=$4
+    local build_context=$5
+    local build_dockerfile=$6
+    shift 6
+
+    load_worktree_state "$name" || return 1
+    (
+        cd "$path" || exit 1
+        COMPOSE_PROJECT_NAME="$WORKTREE_STATE_COMPOSE_PROJECT_NAME" \
+            APP_PORT="$WORKTREE_STATE_APP_PORT" \
+            VITE_PORT="$WORKTREE_STATE_VITE_PORT" \
+            FORWARD_DB_PORT="$WORKTREE_STATE_DB_PORT" \
+            FORWARD_REDIS_PORT="$WORKTREE_STATE_REDIS_PORT" \
+            SAIL_SOURCE_PATH="$path" SAIL_BIN="$sail_bin" \
+            SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" \
+            SAIL_BUILD_CONTEXT="$build_context" \
+            SAIL_BUILD_DOCKERFILE="$build_dockerfile" \
+            run_sail "$@"
+    )
+}
+
 stack_is_running() {
     local path=${1:-.}
     local sail_bin=${2:-${SAIL_BIN:-$path/vendor/bin/sail}}
@@ -365,8 +390,10 @@ stack_is_running() {
             return 1
         fi
     else
-        if ! (cd "$path" && COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
-            SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" SAIL_BIN="$sail_bin" \
+        if ! (cd "$path" && COMPOSE_PROJECT_NAME="${WORKTREE_STATE_COMPOSE_PROJECT_NAME:-$PROJECT_NAME}" \
+            APP_PORT="${WORKTREE_STATE_APP_PORT:-}" VITE_PORT="${WORKTREE_STATE_VITE_PORT:-}" \
+            FORWARD_DB_PORT="${WORKTREE_STATE_DB_PORT:-}" FORWARD_REDIS_PORT="${WORKTREE_STATE_REDIS_PORT:-}" \
+            SAIL_SOURCE_PATH="$path" SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" SAIL_BIN="$sail_bin" \
             run_sail ps -q laravel.test) >"$output_file" 2>/dev/null; then
             rm -f "$output_file"
             return 1
@@ -378,10 +405,12 @@ stack_is_running() {
 }
 
 stack_is_running_for_worktree() {
-    local path=$1
+    local name=$1
+    local path=${2:-$(worktree_path "$name")}
     local sail_bin=${SAIL_BIN:-$path/vendor/bin/sail}
     local mysql_init_script=
 
+    load_worktree_state "$name" || return 1
     if [ ! -d "$path/vendor/laravel/sail" ]; then
         sail_bin="$worktree_root/vendor/bin/sail"
         mysql_init_script="$worktree_root/vendor/laravel/sail/database/mysql/create-testing-database.sh"
@@ -448,71 +477,46 @@ validate_worktree_prerequisites() {
 }
 
 start_stack() {
-    local path=$1
-    local sail_bin=${2:-${SAIL_BIN:-$path/vendor/bin/sail}}
+    local name=$1
+    local path=$2
+    local sail_bin=${3:-${SAIL_BIN:-$path/vendor/bin/sail}}
     [ -x "$sail_bin" ] || die "Sail fehlt in $path/vendor/bin/sail" || return 1
-    if ! stack_is_running "$path" "$sail_bin"; then
-        port_is_available 8080 || die 'Port 8080 ist bereits belegt' || return 1
-    fi
-    (
-        cd "$path" || exit 1
-        COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
-            SAIL_BUILD_CONTEXT='' SAIL_BUILD_DOCKERFILE='' SAIL_MYSQL_INIT_SCRIPT='' \
-            SAIL_BIN="$sail_bin" \
-            run_sail up -d --remove-orphans
-    )
+    run_worktree_sail "$name" "$path" "$sail_bin" '' '' '' up -d --remove-orphans
 }
 
 stop_stack() {
-    local path=$1
-    local sail_bin=${2:-${SAIL_BIN:-$path/vendor/bin/sail}}
-    local mysql_init_script=${3:-}
+    local name=$1
+    local path=$2
+    local sail_bin=${3:-${SAIL_BIN:-$path/vendor/bin/sail}}
+    local mysql_init_script=${4:-}
     [ -x "$sail_bin" ] || die "Sail fehlt in $path/vendor/bin/sail" || return 1
-    (
-        cd "$path" || exit 1
-        COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
-            SAIL_BUILD_CONTEXT='' SAIL_BUILD_DOCKERFILE='' SAIL_BIN="$sail_bin" \
-            SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" run_sail down --remove-orphans
-    )
+    run_worktree_sail "$name" "$path" "$sail_bin" "$mysql_init_script" '' '' down --remove-orphans
 }
 
 run_fresh() {
-    local path=$1
+    local name=$1
+    local path=$2
     local answer
-    local sail_bin=${2:-${SAIL_BIN:-$path/vendor/bin/sail}}
+    local sail_bin=${3:-${SAIL_BIN:-$path/vendor/bin/sail}}
     [ -x "$sail_bin" ] || die "Sail fehlt in $path/vendor/bin/sail" || return 1
+    ensure_worktree_state "$name" "$path" || return 1
     printf 'WARNUNG: Datenbank von Worktree "%s" wird vollständig zurückgesetzt. Fortfahren? [y/N] ' \
         "$(basename "$path")" >&2
     read -r answer
     [ "$answer" = y ] || [ "$answer" = Y ] || die 'Datenbank-Reset abgebrochen' || return 1
-    (
-        cd "$path" || exit 1
-        COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
-            SAIL_BUILD_CONTEXT='' SAIL_BUILD_DOCKERFILE='' SAIL_MYSQL_INIT_SCRIPT='' \
-            SAIL_BIN="$sail_bin" \
-            run_sail artisan migrate:fresh --seed
-    )
+    run_worktree_sail "$name" "$path" "$sail_bin" '' '' '' artisan migrate:fresh --seed
 }
 
 start_for_worktree() {
     local name=$1
-    local path=${2:-$1}
+    local path=$2
     local sail_bin
     local build_context=
     local build_dockerfile=
     local mysql_init_script=
 
-    if [ "$#" -lt 2 ]; then
-        name=$(basename "$1")
-    fi
+    ensure_worktree_state "$name" "$path" || return 1
     sail_bin=${SAIL_BIN:-$path/vendor/bin/sail}
-    if [ -f "$(worktree_state_path "$name")" ]; then
-        load_worktree_state "$name" || return 1
-    else
-        unset WORKTREE_STATE_NAME WORKTREE_STATE_COMPOSE_PROJECT_NAME WORKTREE_STATE_APP_PORT \
-            WORKTREE_STATE_VITE_PORT WORKTREE_STATE_DB_PORT WORKTREE_STATE_REDIS_PORT
-    fi
-
     if [ ! -d "$path/vendor/laravel/sail" ]; then
         sail_bin="$worktree_root/vendor/bin/sail"
         build_context="$worktree_root/vendor/laravel/sail/runtimes/8.5"
@@ -520,32 +524,29 @@ start_for_worktree() {
         mysql_init_script="$worktree_root/vendor/laravel/sail/database/mysql/create-testing-database.sh"
     fi
     [ -x "$sail_bin" ] || die "Sail fehlt in $path/vendor/bin/sail" || return 1
-    if ! stack_is_running "$path" "$sail_bin" "$mysql_init_script"; then
-        port_is_available 8080 || die 'Port 8080 ist bereits belegt' || return 1
-    fi
     if [ -n "$build_context" ]; then
-        (
-            cd "$path" || exit 1
-            COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
-                SAIL_BUILD_CONTEXT="$build_context" SAIL_BUILD_DOCKERFILE="$build_dockerfile" \
-                SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" \
-                SAIL_BIN="$sail_bin" run_sail up -d --remove-orphans
-        )
+        run_worktree_sail "$name" "$path" "$sail_bin" "$mysql_init_script" \
+            "$build_context" "$build_dockerfile" up -d --remove-orphans
     else
-        start_stack "$path" "$sail_bin"
+        start_stack "$name" "$path" "$sail_bin"
     fi
 }
 
 stop_for_worktree() {
-    local path=$1
+    local name=$1
+    local path=$2
     local sail_bin=${SAIL_BIN:-$path/vendor/bin/sail}
     local mysql_init_script=
 
+    if [ ! -f "$(worktree_state_path "$name")" ]; then
+        die "Zustand für Worktree $name nicht initialisiert; zuerst starten mit: bin/worktree start"
+        return 1
+    fi
     if [ ! -d "$path/vendor/laravel/sail" ]; then
         sail_bin="$worktree_root/vendor/bin/sail"
         mysql_init_script="$worktree_root/vendor/laravel/sail/database/mysql/create-testing-database.sh"
     fi
-    stop_stack "$path" "$sail_bin" "$mysql_init_script"
+    stop_stack "$name" "$path" "$sail_bin" "$mysql_init_script"
 }
 
 resolve_worktree() {
