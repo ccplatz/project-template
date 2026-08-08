@@ -104,7 +104,7 @@ mkdir -p "$repo/bin"
 busy_ports="$repo/busy-ports"
 printf '%s\n' '#!/bin/bash' \
     'while IFS= read -r busy_port; do' \
-    '    [ "$busy_port" = "$2" ] && exit 0' \
+    '    [ "$busy_port" = "$3" ] && exit 0' \
     'done < "${BUSY_PORTS:?}"' \
     'exit 1' > "$repo/bin/nc"
 chmod +x "$repo/bin/nc"
@@ -322,7 +322,7 @@ git commit -m "feat: add per-worktree state and port allocation"
 ## Task 2: Propagate Isolated Compose Environment To Sail
 
 **Files:**
-- Modify: `bin/worktree:65-142`
+- Modify: `bin/worktree:65-167`
 - Modify: `bin/worktree-lib.sh:30-60,62-72,131-219`
 - Test: `tests/bin/worktree_test.sh:255-342`
 
@@ -335,20 +335,50 @@ git commit -m "feat: add per-worktree state and port allocation"
 Update the mock Sail log to include all Compose and port environment values:
 
 ```bash
-printf 'PROJECT=%s APP=%s VITE=%s DB=%s REDIS=%s SOURCE=%s ARGS=%s\n' \
-    "${COMPOSE_PROJECT_NAME:-}" "${APP_PORT:-}" "${VITE_PORT:-}" \
-    "${FORWARD_DB_PORT:-}" "${FORWARD_REDIS_PORT:-}" \
-    "${SAIL_SOURCE_PATH:-}" "$*" >> "$MOCK_SAIL_LOG"
+printf 'PWD=%s COMPOSE_PROJECT_NAME=%s SAIL_SOURCE_PATH=%s SAIL_BIN=%s SAIL_BUILD_CONTEXT=%s SAIL_BUILD_DOCKERFILE=%s SAIL_MYSQL_INIT_SCRIPT=%s ARGS=%s PROJECT=%s APP=%s VITE=%s DB=%s REDIS=%s\n' \
+    "$PWD" "${COMPOSE_PROJECT_NAME:-}" "${SAIL_SOURCE_PATH:-}" \
+    "${SAIL_BIN:-}" "${SAIL_BUILD_CONTEXT:-}" "${SAIL_BUILD_DOCKERFILE:-}" \
+    "${SAIL_MYSQL_INIT_SCRIPT:-}" "$*" "${COMPOSE_PROJECT_NAME:-}" \
+    "${APP_PORT:-}" "${VITE_PORT:-}" "${FORWARD_DB_PORT:-}" \
+    "${FORWARD_REDIS_PORT:-}" >> "$MOCK_SAIL_LOG"
 ```
 
-Replace the single `STACK_STATE` marker in the mock with a directory keyed by
-Compose project name and update every `up`, `down`, and `ps` branch to use the
-computed marker:
+This preserves every existing `PWD=`, `SAIL_SOURCE_PATH=`, `SAIL_BIN=`,
+`SAIL_BUILD_CONTEXT=`, `SAIL_BUILD_DOCKERFILE=`, and
+`SAIL_MYSQL_INIT_SCRIPT=` substring assertion while appending the new project
+and port values for isolation assertions.
+
+In the earlier shell-function mock, replace the `MOCK_STACK_RUNNING` branch
+with the same project-keyed marker lookup:
+
+```bash
+case "$*" in
+    'ps -q laravel.test')
+        if [ -f "${STACK_STATE_DIR:?}/${COMPOSE_PROJECT_NAME:?}" ]; then
+            printf 'app-container-%s\n' "${COMPOSE_PROJECT_NAME:?}"
+        fi
+        ;;
+esac
+```
+
+Export `STACK_STATE_DIR="$repo/stack-running"` before invoking any named
+status test. Remove `MOCK_STACK_RUNNING` assignments and the old root-level
+`stack_is_running` assertion entirely.
+
+Replace the single `STACK_STATE` marker in the command-level Sail mock with an
+exported directory keyed by Compose project name and update every `up`, `down`,
+and `ps` branch to use the computed marker:
 
 ```bash
 stack_state_dir="$repo/stack-running"
 mkdir -p "$stack_state_dir"
-state_marker="$stack_state_dir/${COMPOSE_PROJECT_NAME:?}"
+export STACK_STATE_DIR="$stack_state_dir"
+```
+
+Inside the heredoc Sail script, use:
+
+```bash
+state_marker="${STACK_STATE_DIR:?}/${COMPOSE_PROJECT_NAME:?}"
 
 case "$*" in
     'ps -q laravel.test')
@@ -363,6 +393,20 @@ case "$*" in
         rm -f "$state_marker"
         ;;
 esac
+```
+
+Append the new project and port values after the existing `ARGS=%s` field in
+the command-level mock log. Keep the existing fields and order through
+`ARGS=%s` so current `SOURCE=`, `BIN=`, `BUILD_CONTEXT=`, `BUILD_DOCKERFILE=`,
+and `MYSQL_INIT=` substring assertions remain valid:
+
+```bash
+printf 'PWD=%s SOURCE=%s BIN=%s BUILD_CONTEXT=%s BUILD_DOCKERFILE=%s MYSQL_INIT=%s ARGS=%s PROJECT=%s APP=%s VITE=%s DB=%s REDIS=%s\n' \
+    "$PWD" "${SAIL_SOURCE_PATH:-}" "${SAIL_BIN:-}" \
+    "${SAIL_BUILD_CONTEXT:-}" "${SAIL_BUILD_DOCKERFILE:-}" \
+    "${SAIL_MYSQL_INIT_SCRIPT:-}" "$*" "${COMPOSE_PROJECT_NAME:-}" \
+    "${APP_PORT:-}" "${VITE_PORT:-}" "${FORWARD_DB_PORT:-}" \
+    "${FORWARD_REDIS_PORT:-}" >> "${COMMAND_LOG:?}"
 ```
 
 Add tests that start `feature-x` and `feature-y`, then assert the exact
@@ -391,6 +435,24 @@ Add a regression case with `printf '8080\n' > "$busy_ports"` where
 `start_for_worktree feature-x ...` still starts using the already persisted
 state. The state reservation is authoritative for an existing Worktree; the
 allocator only checks host availability when creating a new state.
+
+Replace the existing direct lifecycle calls at current test lines 288-328,
+rather than appending duplicate tests. Every call must include the Worktree
+name, while the existing build-context, Sail-fallback, stop, and fresh-output
+assertions remain in place:
+
+```bash
+assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
+assert_status 0 stop_for_worktree feature-x "$repo/.worktrees/feature-x"
+printf 'y\n' | assert_status 0 run_fresh feature-x "$repo/.worktrees/feature-x"
+```
+
+The target-Sail fallback case uses the same `feature-x` name with the target
+path after creating `vendor/laravel/sail`.
+
+Delete the old `start_stack` port-8080 failure block at current
+lines 330-340; the persisted-state test above replaces it and the allocator
+test in Task 1 covers busy-port selection.
 
 - [ ] **Step 2: Run the focused test and verify the expected failure**
 
@@ -444,18 +506,24 @@ run_bootstrap_command() {
     local build_context=$3
     local sail_bin=$4
     local mysql_init_script=$5
-    local build_dockerfile=''
+    local build_dockerfile=Dockerfile
     shift 5
 
-    if [ -n "$build_context" ]; then
-        build_dockerfile=Dockerfile
-    fi
     run_worktree_sail "$name" "$target" "$sail_bin" "$mysql_init_script" \
         "$build_context" "$build_dockerfile" "$@"
 }
 ```
 
 Update `bootstrap_worktree` to accept `<name> <target>` and pass that name on every Composer, npm, and Artisan call. The target bootstrap must therefore use the target project's Compose name and port group even while it uses the main checkout's Sail runtime files. Update `create_worktree` to call `ensure_worktree_state "$name" "$target"` before `bootstrap_worktree "$name" "$target"`.
+
+Keep `SAIL_BUILD_DOCKERFILE=Dockerfile` for all bootstrap steps, including
+npm and `key:generate`, to preserve the existing bootstrap environment and the
+current `feature-z-unique` assertions. Normal start/stop/fresh operations still
+pass an empty build-dockerfile value.
+
+The existing assertions at current test lines 526-527 for npm and
+`key:generate` must remain `BUILD_DOCKERFILE=Dockerfile`; do not change them to
+an empty value.
 
 - [ ] **Step 4: Route status, start, stop, and fresh operations through the seam**
 
@@ -516,7 +584,7 @@ Expected: all mock Sail calls contain the target Compose project and port group;
 - [ ] **Step 7: Commit isolated Sail propagation**
 
 ```sh
-git add bin/worktree-lib.sh tests/bin/worktree_test.sh
+git add bin/worktree bin/worktree-lib.sh tests/bin/worktree_test.sh
 git commit -m "feat: isolate sail environments per worktree"
 ```
 
@@ -589,6 +657,25 @@ rm -f "$repo/.worktrees/.state/port-allocation-fallback.env"
 printf '%s\n' feature-x > "$repo/.worktree-active"
 rm -f "$busy_ports"
 ```
+
+Replace the earlier switch-order assertion at current test lines 471-478;
+that block currently requires a `down` before the target `up`:
+
+```bash
+rm -f "$command_log"
+touch "$stack_state_dir/test-project-feature-x"
+assert_status 0 run_command switch feature-y
+assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_contains "$command_log" \
+    "SOURCE=$repo/.worktrees/feature-y"
+assert_eq feature-y "$(<"$repo/.worktree-active")" \
+    'switch starts the target without stopping the previous stack'
+rm -f "$stack_state_dir/test-project-feature-x"
+```
+
+Replace every remaining command-level `STACK_STATE`, `stack_state`, and
+`PORT_IN_USE` test variable with the project-keyed `stack_state_dir` markers
+and the `busy_ports` file from Tasks 1 and 2.
 
 Before the Composer-failure scenario, clear the command log with
 `rm -f "$command_log"`. Replace the current rollback expectation at lines 587-594 with an assertion
@@ -702,6 +789,21 @@ project: <Compose project name>
 url: http://127.0.0.1:<APP_PORT>
 ports: app=<APP_PORT> vite=<VITE_PORT> db=<FORWARD_DB_PORT> redis=<FORWARD_REDIS_PORT>
 status: running|stopped
+```
+
+Replace the existing exact-output assertions at current test lines 422-428
+with the new complete output:
+
+```bash
+expected_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nproject: test-project-feature-x\nurl: http://127.0.0.1:8080\nports: app=8080 vite=5173 db=3306 redis=6379\nstatus: stopped' "$repo")
+assert_eq "$expected_status" "$(run_command status)" \
+    'status prints the project, URL, ports, and stopped state'
+
+touch "$stack_state_dir/test-project-feature-x"
+expected_running_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nproject: test-project-feature-x\nurl: http://127.0.0.1:8080\nports: app=8080 vite=5173 db=3306 redis=6379\nstatus: running' "$repo")
+assert_eq "$expected_running_status" "$(run_command status)" \
+    'status prints the project, URL, ports, and running state'
+rm -f "$stack_state_dir/test-project-feature-x"
 ```
 
 For a valid Worktree without a state file, print `status: unconfigured` and the
