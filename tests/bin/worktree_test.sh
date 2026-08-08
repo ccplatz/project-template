@@ -132,6 +132,26 @@ assert_contains() {
     esac
 }
 
+assert_output_contains() {
+    local expected=$1
+    shift
+    local output
+    local actual
+    if output=$("$@" 2>&1); then
+        actual=0
+    else
+        actual=$?
+    fi
+    assert_eq 0 "$actual" "status of $*"
+    case "$output" in
+        *"$expected"*) printf 'ok - output of %s contains %s\n' "$*" "$expected" ;;
+        *)
+            printf 'not ok - output of %s does not contain %s\n' "$*" "$expected"
+            failures=$((failures + 1))
+            ;;
+    esac
+}
+
 assert_not_contains() {
     local file=$1
     local unexpected=$2
@@ -277,17 +297,93 @@ assert_contains "$MOCK_SAIL_LOG" 'COMPOSE_PROJECT_NAME=test-project'
 assert_contains "$MOCK_SAIL_LOG" 'ARGS=ps -q laravel.test'
 
 mkdir -p "$repo/bin"
-port_in_use="$repo/port-in-use"
+git -C "$repo" worktree add -q -b feature-y "$repo/.worktrees/feature-y"
+printf 'APP_KEY=base64:feature-y\n' > "$repo/.worktrees/feature-y/.env"
+cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
+
+busy_ports="$repo/busy-ports"
 printf '%s\n' '#!/bin/bash' \
-    "[ -f \"$port_in_use\" ] && exit 0" \
+    'while IFS= read -r busy_port; do' \
+    '    [ "$busy_port" = "$3" ] && exit 0' \
+    'done < "${BUSY_PORTS:?}"' \
     'exit 1' > "$repo/bin/nc"
 chmod +x "$repo/bin/nc"
+export BUSY_PORTS="$busy_ports"
 old_path=$PATH
 PATH="$repo/bin:$PATH"
+: > "$busy_ports"
+
+state_dir="$repo/.worktrees/.state"
+mkdir -p "$state_dir"
+
+rm -f "$state_dir/feature-x.env"
+assert_status 0 ensure_worktree_state feature-x "$repo/.worktrees/feature-x"
+assert_status 0 load_worktree_state feature-x
+assert_eq feature-x "$WORKTREE_STATE_NAME" 'state stores the Worktree name'
+assert_eq test-project-feature-x "$WORKTREE_STATE_COMPOSE_PROJECT_NAME" \
+    'state derives an isolated Compose project name'
+assert_eq 8080 "$WORKTREE_STATE_APP_PORT" 'first group uses the canonical HTTP port'
+assert_eq 5173 "$WORKTREE_STATE_VITE_PORT" 'first group uses the Vite offset'
+assert_eq 3306 "$WORKTREE_STATE_DB_PORT" 'first group uses the database offset'
+assert_eq 6379 "$WORKTREE_STATE_REDIS_PORT" 'first group uses the Redis offset'
+assert_contains "$state_dir/feature-x.env" \
+    'COMPOSE_PROJECT_NAME=test-project-feature-x'
+
+printf '8090\n' > "$busy_ports"
+assert_status 0 ensure_worktree_state feature-y "$repo/.worktrees/feature-y"
+assert_status 0 load_worktree_state feature-y
+assert_eq 8100 "$WORKTREE_STATE_APP_PORT" 'allocator skips a busy second HTTP group'
+assert_eq 5193 "$WORKTREE_STATE_VITE_PORT" 'allocator keeps the group offsets aligned'
+assert_eq 3326 "$WORKTREE_STATE_DB_PORT" 'allocator keeps the database group aligned'
+assert_eq 6399 "$WORKTREE_STATE_REDIS_PORT" 'allocator keeps the Redis group aligned'
+
+assert_status 0 load_worktree_state feature-x
+assert_eq 8080 "$WORKTREE_STATE_APP_PORT" 'state reuses the first group after another allocation'
+
+git -C "$repo" worktree add -q -b malformed-state "$repo/.worktrees/malformed-state"
+printf 'APP_KEY=base64:malformed-state\n' > "$repo/.worktrees/malformed-state/.env"
+cp "$repo/compose.yaml" "$repo/.worktrees/malformed-state/compose.yaml"
+printf '%s\n' \
+    'WORKTREE_NAME=malformed-state' \
+    'COMPOSE_PROJECT_NAME=test-project-malformed-state' \
+    'APP_PORT=8080' \
+    'VITE_PORT=5173' \
+    'FORWARD_DB_PORT=3306' \
+    'FORWARD_REDIS_PORT=6379' \
+    'UNEXPECTED=reject-me' > "$state_dir/malformed-state.env"
+: > "$MOCK_SAIL_LOG"
+assert_failure_contains 'ungültiger Worktree-Zustand' \
+    start_for_worktree malformed-state "$repo/.worktrees/malformed-state"
+assert_not_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
+git -C "$repo" worktree remove -f "$repo/.worktrees/malformed-state"
+rm -f "$state_dir/malformed-state.env"
+
+PROJECT_NAME=Bad.Name
+assert_failure_contains 'ungültiger Compose-Projektname' \
+    ensure_worktree_state bad-project "$repo/.worktrees/feature-x"
+PROJECT_NAME=test-project
+assert_not_exists "$repo/.worktrees/.state/bad-project.env"
+assert_not_exists "$state_dir/.allocation-lock"
+
+git -C "$repo" worktree add -q -b lock-test "$repo/.worktrees/lock-test"
+printf 'APP_KEY=base64:lock-test\n' > "$repo/.worktrees/lock-test/.env"
+cp "$repo/compose.yaml" "$repo/.worktrees/lock-test/compose.yaml"
+lock_dir="$state_dir/.allocation-lock"
+mkdir -p "$lock_dir"
+printf '%s\n' "$$" > "$lock_dir/pid"
+assert_failure_contains 'Portzuweisung läuft bereits' \
+    ensure_worktree_state lock-test "$repo/.worktrees/lock-test"
+assert_contains "$lock_dir/pid" "$$"
+
+printf '%s\n' 99999999 > "$lock_dir/pid"
+assert_status 0 ensure_worktree_state lock-test "$repo/.worktrees/lock-test"
+assert_not_exists "$lock_dir"
+rm -f "$state_dir/lock-test.env"
+git -C "$repo" worktree remove -f "$repo/.worktrees/lock-test"
 
 : > "$MOCK_SAIL_LOG"
 export MOCK_STACK_RUNNING=0
-assert_status 0 start_for_worktree "$repo/.worktrees/feature-x"
+assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
 assert_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
 assert_contains "$MOCK_SAIL_LOG" "SAIL_SOURCE_PATH=$repo/.worktrees/feature-x"
 assert_contains "$MOCK_SAIL_LOG" "SAIL_BIN=$repo/vendor/bin/sail"
@@ -299,7 +395,7 @@ assert_not_contains "$MOCK_SAIL_LOG" 'migrate:fresh'
 mkdir -p "$repo/.worktrees/feature-x/vendor/laravel/sail"
 : > "$MOCK_SAIL_LOG"
 export MOCK_STACK_RUNNING=0
-assert_status 0 start_for_worktree "$repo/.worktrees/feature-x"
+assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
 assert_contains "$MOCK_SAIL_LOG" "SAIL_BIN=$repo/.worktrees/feature-x/vendor/bin/sail"
 assert_contains "$MOCK_SAIL_LOG" "SAIL_SOURCE_PATH=$repo/.worktrees/feature-x"
 assert_contains "$MOCK_SAIL_LOG" 'SAIL_BUILD_CONTEXT= SAIL_BUILD_DOCKERFILE= SAIL_MYSQL_INIT_SCRIPT='
@@ -328,13 +424,14 @@ assert_contains "$MOCK_SAIL_LOG" 'ARGS=artisan migrate:fresh --seed'
 assert_contains "$MOCK_SAIL_LOG" 'SAIL_BUILD_CONTEXT= SAIL_BUILD_DOCKERFILE= SAIL_MYSQL_INIT_SCRIPT='
 
 : > "$MOCK_SAIL_LOG"
-touch "$port_in_use"
+printf '8080\n' > "$busy_ports"
 export MOCK_STACK_RUNNING=0
 assert_failure_contains 'Port 8080 ist bereits belegt' \
     start_stack "$repo/.worktrees/feature-x" "$repo/vendor/bin/sail"
 assert_not_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
 
 : > "$MOCK_SAIL_LOG"
+: > "$busy_ports"
 export MOCK_STACK_RUNNING=1
 assert_status 0 start_stack "$repo/.worktrees/feature-x" "$repo/vendor/bin/sail"
 assert_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
@@ -342,9 +439,6 @@ assert_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
 PATH=$old_path
 
 command_script=$(cd "$(dirname "$0")/../.." && pwd)/bin/worktree
-git -C "$repo" worktree add -q -b feature-y "$repo/.worktrees/feature-y"
-printf 'APP_KEY=base64:feature-y\n' > "$repo/.worktrees/feature-y/.env"
-cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
 command_log="$repo/command.log"
 stack_state="$repo/stack-running"
 cat > "$repo/vendor/bin/sail" <<'EOF'
@@ -371,7 +465,7 @@ case "$*" in
         ;;
     'down --remove-orphans')
         rm -f "$STACK_STATE"
-        rm -f "${PORT_IN_USE:-}"
+        : > "${BUSY_PORTS:?}"
         ;;
     'composer install')
         if [ "${FAIL_BOOTSTRAP_STEP:-}" = composer ]; then exit 1; fi
@@ -403,10 +497,9 @@ mkdir -p "$repo/.worktrees/feature-y/vendor/bin"
 cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-y/vendor/bin/sail"
 chmod +x "$repo/.worktrees/feature-y/vendor/bin/sail"
 export COMMAND_LOG="$command_log" STACK_STATE="$stack_state" ROOT_SAIL="$repo/vendor/bin/sail" \
-    ROOT_MYSQL_INIT="$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh" \
-    PORT_IN_USE="$port_in_use"
+    ROOT_MYSQL_INIT="$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
 PATH="$repo/bin:$old_path"
-rm -f "$port_in_use"
+: > "$busy_ports"
 
 run_command() {
     WORKTREE_TEST_ROOT="$repo" "$command_script" "$@"
@@ -484,14 +577,15 @@ assert_failure_contains 'branch does not exist' run_command create missing-branc
 
 printf '%s\n' feature-x > "$repo/.worktree-active"
 : > "$command_log"
-touch "$stack_state" "$port_in_use"
+touch "$stack_state"
+printf '8080\n' > "$busy_ports"
 assert_failure_contains 'Port 8080 ist bereits belegt' \
     run_command create port-preflight-failure
 assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
 assert_eq feature-x "$(<"$repo/.worktree-active")" \
     'port preflight preserves active state'
 assert_not_exists "$repo/.worktrees/port-preflight-failure"
-rm -f "$port_in_use"
+: > "$busy_ports"
 
 for missing_bootstrap_path in \
     "$repo/vendor/bin/sail" \
@@ -648,12 +742,13 @@ assert_eq feature-x "$(<"$repo/.worktree-active")" \
 assert_contains "$command_log" 'ARGS=artisan migrate:fresh --seed'
 
 rm -f "$command_log" "$repo/.worktree-active"
-touch "$stack_state" "$port_in_use"
+touch "$stack_state"
+printf '8080\n' > "$busy_ports"
 assert_status 0 run_command switch feature-y
 assert_contains "$command_log" 'ARGS=down --remove-orphans'
 assert_eq feature-y "$(<"$repo/.worktree-active")" \
     'switch stops fixed stack without active state'
-rm -f "$port_in_use"
+: > "$busy_ports"
 
 printf '%s\n' '../invalid' > "$repo/.worktree-active"
 rm -f "$command_log"
