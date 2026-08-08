@@ -93,7 +93,7 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     if [ "$path" = README.md ]; then
         [ "$strategy" = project-owned ] && real_manifest_readme=1
     fi
-    if [ "$strategy" != project-config ] \
+    if [ "$strategy" = template-owned ] \
         && { [ ! -f "$script_dir/../../$path" ] || [ -L "$script_dir/../../$path" ]; }; then
         printf 'not ok - real manifest path exists: %s\n' "$path" >&2
         failures=$((failures + 1))
@@ -107,7 +107,7 @@ assert_eq 1 "$real_manifest_project_config" \
     'real manifest includes project-config .template/project.conf'
 assert_eq 1 "$real_manifest_readme" \
     'real manifest keeps README.md project-owned'
-assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.1.0]' \
+assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.1.1]' \
     'changelog records the initial release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" 'template-owned' \
     'sync documentation defines template ownership'
@@ -157,7 +157,7 @@ real_template="$root/real-template"
 mkdir -p "$real_template"
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     [[ -z "${strategy:-}" || "$strategy" == \#* ]] && continue
-    if [ "$strategy" != project-config ]; then
+    if [ "$strategy" = template-owned ]; then
         mkdir -p "$real_template/$(dirname -- "$path")"
         cp -p "$script_dir/../../$path" "$real_template/$path"
     fi

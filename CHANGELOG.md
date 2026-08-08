@@ -2,6 +2,13 @@
 
 All notable changes to this template are documented here.
 
+## [0.1.1] - 2026-08-08
+
+### Fixed
+
+- Do not require `project-owned` files to exist in the template source during sync.
+- Keep sync tests independent of project-owned README and instruction files.
+
 ## [0.1.0] - 2026-08-08
 
 ### Added

@@ -202,13 +202,11 @@ while IFS= read -r manifest_line || [ -n "$manifest_line" ]; do
     manifest_paths+=("$path")
     manifest_strategies+=("$strategy")
 
-    validate_source_path "$path"
-    source_path="$script_root/$path"
-    if [ "$strategy" != project-config ]; then
+    if [ "$strategy" = template-owned ]; then
+        validate_source_path "$path"
+        source_path="$script_root/$path"
         [ -f "$source_path" ] && [ ! -L "$source_path" ] || \
             die "Manifest-Datei fehlt oder ist kein reguläres File: $path"
-    fi
-    if [ "$strategy" = template-owned ]; then
         if ! git -C "$script_root" ls-files --error-unmatch -- "$path" >/dev/null 2>&1 \
             || ! git -C "$script_root" cat-file -e "HEAD:$path" 2>/dev/null; then
             die "Template-owned Quelldatei ist nicht in HEAD versioniert: $path"

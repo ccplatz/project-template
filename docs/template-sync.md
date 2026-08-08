@@ -44,7 +44,7 @@ files, not just a release label:
 
 ```text
 source=project-template
-version=0.1.0
+version=0.1.1
 commit=0123456789abcdef0123456789abcdef01234567
 ```
 
