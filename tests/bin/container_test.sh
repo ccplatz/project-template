@@ -119,12 +119,14 @@ container_script="$script_dir/../../bin/container"
 cli_root=$(mktemp -d)
 trap 'rm -rf "$docker_log" "$cli_root"' EXIT
 mkdir -p "$cli_root/bin"
+mkdir -p "$cli_root/.template"
+printf 'PROJECT_NAME=test-project\n' > "$cli_root/.template/project.conf"
 
 # PATH-stub docker: records calls, behavior via MOCK_* flags
 cat > "$cli_root/bin/docker" <<'STUB'
 #!/bin/bash
 set -euo pipefail
-echo "docker $*" >>"${DOCKER_LOG:-/dev/null}"
+printf 'COMPOSE_PROJECT_NAME=%s docker %s\n' "${COMPOSE_PROJECT_NAME:-}" "$*" >>"${DOCKER_LOG:-/dev/null}"
 if [ "$1" = network ] && [ "$2" = inspect ]; then
     [ "${MOCK_NET_EXISTS:-0}" -eq 1 ] || exit 1
     case "$*" in
@@ -242,10 +244,13 @@ PATH=$old_path
 # ---- Diagnostic command CLI tests (status, ps, logs) ----
 PATH="$cli_root/bin:$old_path"
 write_env prod 'traefik,pma' myhost
+printf 'PROJECT_NAME=from-env\n' >> "$cli_root/.env"
+printf 'COMPOSE_PROJECT_NAME=from-env\n' >> "$cli_root/.env"
 
 # status
 : > "$cli_root/docker.log"
 MOCK_NET_EXISTS=1 MOCK_NET_CONTAINERS=1 run_cli status
+grep -q 'COMPOSE_PROJECT_NAME=test-project docker compose -f docker-compose.prod.yml ps' "$cli_root/docker.log"
 out=$(CONTAINER_TEST_ROOT="$cli_root" DOCKER_LOG="$cli_root/docker.log" \
     MOCK_NET_EXISTS=1 run_cli status)
 case "$out" in
@@ -256,7 +261,8 @@ esac
 # ps uses docker ps with the compose project label filter
 : > "$cli_root/docker.log"
 run_cli ps
-grep -q 'ps --filter label=com.docker.compose.project=<PROJEKTNAME>' "$cli_root/docker.log"
+grep -q 'ps --filter label=com.docker.compose.project=test-project' "$cli_root/docker.log"
+! grep -q 'ps --filter label=com.docker.compose.project=from-env' "$cli_root/docker.log"
 grep -q '{{.ID}}' "$cli_root/docker.log"
 grep -q '{{.Names}}' "$cli_root/docker.log"
 grep -q '{{.Networks}}' "$cli_root/docker.log"

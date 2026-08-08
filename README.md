@@ -121,25 +121,25 @@ cd my-new-project
 
 ### 2. Set the project name
 
-Replace every occurrence of `<PROJEKTNAME>` with the actual project slug (e.g. `my-project`):
+Copy the project configuration example and set `PROJECT_NAME` to the project slug
+(e.g. `my-project`):
 
 ```sh
-PROJECT=my-project
-sed -i "s/<PROJEKTNAME>/$PROJECT/g" \
-    AGENTS.md \
-    bin/container \
-    bin/worktree \
-    bin/worktree-lib.sh \
-    .env.template \
-    tests/bin/container_test.sh \
-    tests/bin/worktree_test.sh
+cp .template/project.conf.example .template/project.conf
+sed -i 's/^PROJECT_NAME=.*/PROJECT_NAME=my-project/' .template/project.conf
 ```
+
+Read `docs/template-sync.md` before making future template updates.
 
 ### 3. Fill in AGENTS.md
 
 Replace all `<!-- TODO -->` comments and `<PROJEKTNAME_ANZEIGE>` placeholders
 with project-specific content. Fill in the architecture, frontend conventions,
 and references sections. Remove any `docs/instructions/*` entries that don't apply.
+
+`AGENTS.md` and `docs/instructions/*` are project-owned documentation. Their
+placeholders are intentionally project-specific and must be filled in by the
+new project; `bin/template-sync` does not rewrite them.
 
 ### 4. Fill in guardrails and project instructions
 

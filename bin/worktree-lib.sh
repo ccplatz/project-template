@@ -1,7 +1,14 @@
 #!/bin/bash
+set -euo pipefail
 
 worktree_root=${WORKTREE_TEST_ROOT:-$(git rev-parse --show-toplevel)}
 active_state_file="$worktree_root/.worktree-active"
+
+project_config_script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=project-config.sh
+# shellcheck disable=SC1091
+source "$project_config_script_dir/project-config.sh"
+load_project_config "$worktree_root"
 
 worktree_path() {
     printf '%s/.worktrees/%s\n' "$worktree_root" "$1"
@@ -34,13 +41,13 @@ stack_is_running() {
     output_file=$(mktemp) || return 1
 
     if [ "$path" = "." ] && [ "$#" -eq 0 ]; then
-        if ! COMPOSE_PROJECT_NAME='<PROJEKTNAME>' SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" \
+        if ! COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" \
             run_sail ps -q laravel.test >"$output_file" 2>/dev/null; then
             rm -f "$output_file"
             return 1
         fi
     else
-        if ! (cd "$path" && COMPOSE_PROJECT_NAME='<PROJEKTNAME>' SAIL_SOURCE_PATH="$path" \
+        if ! (cd "$path" && COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
             SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" SAIL_BIN="$sail_bin" \
             run_sail ps -q laravel.test) >"$output_file" 2>/dev/null; then
             rm -f "$output_file"
@@ -131,7 +138,7 @@ start_stack() {
     fi
     (
         cd "$path" || exit 1
-        COMPOSE_PROJECT_NAME='<PROJEKTNAME>' SAIL_SOURCE_PATH="$path" \
+        COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
             SAIL_BUILD_CONTEXT='' SAIL_BUILD_DOCKERFILE='' SAIL_MYSQL_INIT_SCRIPT='' \
             SAIL_BIN="$sail_bin" \
             run_sail up -d --remove-orphans
@@ -145,7 +152,7 @@ stop_stack() {
     [ -x "$sail_bin" ] || die "Sail fehlt in $path/vendor/bin/sail" || return 1
     (
         cd "$path" || exit 1
-        COMPOSE_PROJECT_NAME='<PROJEKTNAME>' SAIL_SOURCE_PATH="$path" \
+        COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
             SAIL_BUILD_CONTEXT='' SAIL_BUILD_DOCKERFILE='' SAIL_BIN="$sail_bin" \
             SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" run_sail down --remove-orphans
     )
@@ -162,7 +169,7 @@ run_fresh() {
     [ "$answer" = y ] || [ "$answer" = Y ] || die 'Datenbank-Reset abgebrochen' || return 1
     (
         cd "$path" || exit 1
-        COMPOSE_PROJECT_NAME='<PROJEKTNAME>' SAIL_SOURCE_PATH="$path" \
+        COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
             SAIL_BUILD_CONTEXT='' SAIL_BUILD_DOCKERFILE='' SAIL_MYSQL_INIT_SCRIPT='' \
             SAIL_BIN="$sail_bin" \
             run_sail artisan migrate:fresh --seed
@@ -189,7 +196,7 @@ start_for_worktree() {
     if [ -n "$build_context" ]; then
         (
             cd "$path" || exit 1
-            COMPOSE_PROJECT_NAME='<PROJEKTNAME>' SAIL_SOURCE_PATH="$path" \
+            COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$path" \
                 SAIL_BUILD_CONTEXT="$build_context" SAIL_BUILD_DOCKERFILE="$build_dockerfile" \
                 SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" \
                 SAIL_BIN="$sail_bin" run_sail up -d --remove-orphans

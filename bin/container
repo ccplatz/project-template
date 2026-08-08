@@ -5,9 +5,13 @@ script_dir=$(dirname "$(readlink -f "$0")")
 # shellcheck source=container-lib.sh
 # shellcheck disable=SC1091
 source "$script_dir/container-lib.sh"
+# shellcheck source=project-config.sh
+# shellcheck disable=SC1091
+source "$script_dir/project-config.sh"
 
 root_path=${CONTAINER_TEST_ROOT:-$(dirname "$script_dir")}
 cd "$root_path" || exit 1
+root_path=$PWD
 
 build_flag=0
 attach_short=''
@@ -61,11 +65,14 @@ fi
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
+load_project_config "$root_path"
+
 if ! validate_environment "${ENVIRONMENT:-}"; then
     exit 1
 fi
 COMPOSE_FILE=$(resolve_compose_file "$ENVIRONMENT")
-export COMPOSE_FILE HOSTNAME
+COMPOSE_PROJECT_NAME=$PROJECT_NAME
+export COMPOSE_FILE HOSTNAME COMPOSE_PROJECT_NAME
 
 do_start() {
     local nets=()
@@ -154,7 +161,7 @@ do_status() {
 }
 
 do_ps() {
-    run_docker ps --filter 'label=com.docker.compose.project=<PROJEKTNAME>' \
+    run_docker ps --filter "label=com.docker.compose.project=$PROJECT_NAME" \
         --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.RunningFor}}\t{{.Ports}}\t{{.Networks}}'
 }
 

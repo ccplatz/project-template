@@ -5,13 +5,6 @@ set -euo pipefail
 script_root=$(cd "$(dirname "$0")/.." && pwd)
 export WORKTREE_TEST_ROOT=${WORKTREE_TEST_ROOT:-$script_root}
 worktree_root=${WORKTREE_TEST_ROOT:-$script_root}
-# shellcheck source=bin/worktree-lib.sh
-# shellcheck disable=SC2154
-source "$script_root/bin/worktree-lib.sh"
-
-run_git() {
-    git -C "$worktree_root" "$@"
-}
 
 usage() {
     cat <<'EOF'
@@ -43,6 +36,19 @@ Optionen:
 EOF
 }
 
+if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
+    usage
+    exit 0
+fi
+
+# shellcheck source=bin/worktree-lib.sh
+# shellcheck disable=SC2154
+source "$script_root/bin/worktree-lib.sh"
+
+run_git() {
+    git -C "$worktree_root" "$@"
+}
+
 command_failed() {
     printf 'Fehler bei Schritt: %s\n' "$1" >&2
     return 1
@@ -65,7 +71,7 @@ run_bootstrap_command() {
 
     (
         cd "$target" || exit 1
-        COMPOSE_PROJECT_NAME='<PROJEKTNAME>' SAIL_SOURCE_PATH="$target" \
+        COMPOSE_PROJECT_NAME="$PROJECT_NAME" SAIL_SOURCE_PATH="$target" \
             SAIL_BUILD_CONTEXT="$build_context" SAIL_BUILD_DOCKERFILE=Dockerfile \
             SAIL_MYSQL_INIT_SCRIPT="$mysql_init_script" SAIL_BIN="$sail_bin" \
             "$sail_bin" "$@"
@@ -238,13 +244,6 @@ show_status() {
         printf 'stopped\n'
     fi
 }
-
-case "${1:-}" in
-    --help|-h)
-        usage
-        exit 0
-        ;;
-esac
 
 if [ "$#" -eq 0 ]; then
     usage >&2

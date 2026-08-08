@@ -6,6 +6,8 @@ repo=$(mktemp -d)
 trap 'rm -rf "$repo"' EXIT
 
 mkdir -p "$repo/.worktrees"
+mkdir -p "$repo/.template"
+printf 'PROJECT_NAME=test-project\n' > "$repo/.template/project.conf"
 git -C "$repo" init -q -b main
 git -C "$repo" config user.email test@example.com
 git -C "$repo" config user.name 'Worktree Test'
@@ -25,9 +27,10 @@ git -C "$repo" worktree add -q -b feature-x "$repo/.worktrees/feature-x"
 printf 'APP_KEY=base64:feature-x\n' > "$repo/.worktrees/feature-x/.env"
 
 export WORKTREE_TEST_ROOT="$repo"
+worktree_lib_script="$(dirname "$0")/../../bin/worktree-lib.sh"
 # shellcheck source=../../bin/worktree-lib.sh
 # shellcheck disable=SC1091
-source "$(dirname "$0")/../../bin/worktree-lib.sh"
+source "$worktree_lib_script"
 
 failures=0
 
@@ -97,6 +100,18 @@ assert_failure_contains_input() {
             ;;
     esac
 }
+
+assert_strict_mode() {
+    local script=$1
+    assert_status 0 bash -c '
+        source "$1"
+        case "$-" in *e*) ;; *) exit 1 ;; esac
+        case "$-" in *u*) ;; *) exit 1 ;; esac
+        shopt -po pipefail >/dev/null
+    ' _ "$script"
+}
+
+assert_strict_mode "$worktree_lib_script"
 
 assert_contains() {
     local file=$1
@@ -258,7 +273,7 @@ run_sail() {
 export MOCK_STACK_RUNNING=1
 assert_status 0 stack_is_running
 assert_eq 1 "$run_sail_calls" 'stack status uses the Sail command seam'
-assert_contains "$MOCK_SAIL_LOG" 'COMPOSE_PROJECT_NAME=<PROJEKTNAME>'
+assert_contains "$MOCK_SAIL_LOG" 'COMPOSE_PROJECT_NAME=test-project'
 assert_contains "$MOCK_SAIL_LOG" 'ARGS=ps -q laravel.test'
 
 mkdir -p "$repo/bin"

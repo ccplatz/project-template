@@ -1,0 +1,2 @@
+# Project identifier used as the Docker Compose project name.
+PROJECT_NAME=my-project
