@@ -75,6 +75,7 @@ real_manifest_version=0
 real_manifest_changelog=0
 real_manifest_sync_docs=0
 real_manifest_project_config=0
+real_manifest_readme=0
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     [[ -z "${strategy:-}" || "$strategy" == \#* ]] && continue
     if [ "$path" = VERSION ]; then
@@ -89,6 +90,9 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     if [ "$path" = .template/project.conf ]; then
         [ "$strategy" = project-config ] && real_manifest_project_config=1
     fi
+    if [ "$path" = README.md ]; then
+        [ "$strategy" = project-owned ] && real_manifest_readme=1
+    fi
     if [ "$strategy" != project-config ] \
         && { [ ! -f "$script_dir/../../$path" ] || [ -L "$script_dir/../../$path" ]; }; then
         printf 'not ok - real manifest path exists: %s\n' "$path" >&2
@@ -101,6 +105,8 @@ assert_eq 1 "$real_manifest_sync_docs" \
     'real manifest includes template-owned docs/template-sync.md'
 assert_eq 1 "$real_manifest_project_config" \
     'real manifest includes project-config .template/project.conf'
+assert_eq 1 "$real_manifest_readme" \
+    'real manifest keeps README.md project-owned'
 assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.1.0]' \
     'changelog records the initial release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" 'template-owned' \
@@ -130,12 +136,6 @@ assert_file_order "$script_dir/../../docs/template-sync.md" \
     'cp "$template_checkout/.template/project.conf.example" "$consumption_checkout/.template/project.conf"' \
     "printf 'PROJECT_NAME=consumption\\n' > \"\$consumption_checkout/.template/project.conf\"" \
     '"$template_checkout/bin/template-sync" --target "$consumption_checkout" --dry-run'
-assert_file_contains "$script_dir/../../README.md" \
-    'cp .template/project.conf.example .template/project.conf' \
-    'README documents project configuration bootstrap'
-assert_file_contains "$script_dir/../../README.md" 'docs/template-sync.md' \
-    'README points to synchronization documentation'
-
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 template="$root/template"
