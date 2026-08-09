@@ -22,29 +22,31 @@ Use the read tool – only read a file when you absolutely need it.
 
 ## Running commands
 
-**Normal development entry point:** use `./bin/worktree start` (or
+**Normal development entry point:** use `./bin/worktree start <name>` (or
 `./bin/worktree create <name>` for a new worktree). Direct `./vendor/bin/sail`
 startup is a raw-Sail reference for an already active worktree, not the normal
 development entry point. All PHP, Composer, NPM, and Artisan commands still run
 through `./vendor/bin/sail`; never invoke them directly on the host.
 
 ```sh
-./bin/worktree start                         # normal development entry point
-./bin/worktree start --fresh                 # start + migrate:fresh --seed
+./bin/worktree start <name>                  # start one named stack
+./bin/worktree start <name> --fresh          # start + migrate:fresh --seed
 ./bin/worktree create <name>                 # new worktree + bootstrap from main
 ./bin/worktree create <name> --existing      # worktree for existing branch
-./bin/worktree switch <name>                 # stop current stack, start target
+./bin/worktree switch <name>                 # select/start target, keep other stacks
 ./bin/worktree switch <name> --fresh         # switch + migrate:fresh --seed
-./bin/worktree stop                          # stop active worktree stack
-./bin/worktree status                        # show active worktree + branch + status
+./bin/worktree stop <name>                   # stop only the named stack
+./bin/worktree status --all                  # show all stack states and ports
 COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run dev # Vite HMR
 COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan <cmd> # any artisan command
 COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan test # all PHP tests
 COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail composer <script> # composer scripts
 ```
 
-Only one worktree stack can run at a time (shared port `:8080`). `switch`
-automatically stops the current stack before starting the target.
+Multiple worktree stacks can run at the same time. Each stack uses an isolated
+Compose project and port group. `switch` is non-destructive: it selects and
+starts the target without stopping another running stack. The canonical URL is
+`http://127.0.0.1:<APP_PORT>`; use `status --all` to inspect assignments.
 
 ## Validation flow (run in order)
 

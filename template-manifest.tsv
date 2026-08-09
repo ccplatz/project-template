@@ -20,6 +20,7 @@ project-config	.template/project.conf
 template-owned	VERSION
 template-owned	CHANGELOG.md
 template-owned	docs/template-sync.md
+template-owned	docs/worktree.md
 project-owned	.dockerignore
 project-owned	.env.template
 project-owned	.gitattributes
