@@ -560,12 +560,12 @@ assert_status 0 run_command status
 assert_contains "$command_log" 'ARGS=ps -q laravel.test'
 assert_contains "$command_log" "BIN=$repo/vendor/bin/sail"
 assert_contains "$command_log" "MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
-expected_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nstatus: stopped' "$repo")
-assert_eq "$expected_status" "$(run_command status)" 'status prints the exact fields'
+expected_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nproject: test-project-feature-x\nurl: http://127.0.0.1:8080\nports: app=8080 vite=5173 db=3306 redis=6379\nstatus: stopped' "$repo")
+assert_eq "$expected_status" "$(run_command status)" 'status prints project, URL, ports, and stopped state'
 
 mkdir -p "$stack_state"
 touch "$stack_state/test-project-feature-x"
-expected_running_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nstatus: running' "$repo")
+expected_running_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nproject: test-project-feature-x\nurl: http://127.0.0.1:8080\nports: app=8080 vite=5173 db=3306 redis=6379\nstatus: running' "$repo")
 assert_eq "$expected_running_status" "$(run_command status)" \
     'status detects a running stack without local Sail support files'
 rm -f "$stack_state/test-project-feature-x"
@@ -574,17 +574,17 @@ cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-x/vendor/bin/sail"
 chmod +x "$repo/.worktrees/feature-x/vendor/bin/sail"
 
 rm -f "$command_log"
-assert_status 0 run_command start
+assert_status 0 run_command start feature-x
 assert_contains "$command_log" 'ARGS=up -d --remove-orphans'
 assert_eq feature-x "$(cat "$repo/.worktree-active")" \
     'start preserves active worktree after startup'
 
 rm -f "$command_log"
-printf 'y\n' | assert_status 0 run_command start --fresh
+printf 'y\n' | assert_status 0 run_command start feature-x --fresh
 assert_contains "$command_log" 'ARGS=artisan migrate:fresh --seed'
 
 rm -f "$command_log"
-assert_status 0 run_command stop
+assert_status 0 run_command stop feature-x
 assert_contains "$command_log" 'ARGS=down --remove-orphans'
 assert_not_contains "$command_log" '--volumes'
 assert_eq "$expected_status" "$(run_command status)" 'status reports a stopped stack'
@@ -601,7 +601,7 @@ export FAIL_UP_PATH="$repo/.worktrees/feature-y"
 assert_failure_contains 'feature-y' run_command switch feature-y
 unset FAIL_UP_PATH
 assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-y BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=up -d --remove-orphans"
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=up -d --remove-orphans"
+assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=down --remove-orphans"
 assert_eq feature-x "$(<"$repo/.worktree-active")" \
     'failed target startup preserves active worktree'
 
@@ -611,12 +611,10 @@ touch "$stack_state/test-project-feature-x"
 assert_status 0 run_command switch feature-y
 assert_eq feature-y "$(cat "$repo/.worktree-active")" \
     'successful switch writes target active worktree'
-down_line=$(awk '/ARGS=down --remove-orphans/ { print NR; exit }' "$command_log")
-target_up_line=$(awk -v target="$repo/.worktrees/feature-y" '$0 ~ "SOURCE=" target && /ARGS=up -d --remove-orphans/ { print NR; exit }' "$command_log")
-if [ -n "$down_line" ] && [ "$down_line" -lt "$target_up_line" ]; then
-    printf 'ok - switch stops before starting target\n'
+if ! grep -q 'ARGS=down --remove-orphans' "$command_log"; then
+    printf 'ok - switch keeps the previous stack running\n'
 else
-    printf 'not ok - switch stops before starting target\n'
+    printf 'not ok - switch stopped the previous stack\n'
     failures=$((failures + 1))
 fi
 
@@ -626,15 +624,21 @@ assert_failure_contains 'already exists' run_command create feature-x
 assert_failure_contains 'branch does not exist' run_command create missing-branch --existing
 
 printf '%s\n' feature-x > "$repo/.worktree-active"
-: > "$command_log"
-touch "$stack_state/test-project-feature-x"
 printf '8080\n' > "$busy_ports"
-assert_failure_contains 'Port 8080 ist bereits belegt' \
-    run_command create port-preflight-failure
-assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
-assert_eq feature-x "$(<"$repo/.worktree-active")" \
-    'port preflight preserves active state'
-assert_not_exists "$repo/.worktrees/port-preflight-failure"
+rm -f "$command_log"
+assert_status 0 run_command create port-allocation-fallback
+assert_contains "$command_log" 'ARGS=up -d --remove-orphans'
+assert_status 0 load_worktree_state port-allocation-fallback
+case "$WORKTREE_STATE_APP_PORT" in
+    8080)
+        printf 'not ok - allocator reused a busy HTTP port\n'
+        failures=$((failures + 1))
+        ;;
+    *) printf 'ok - allocator skipped the busy HTTP port\n' ;;
+esac
+git -C "$repo" worktree remove -f "$repo/.worktrees/port-allocation-fallback"
+rm -f "$repo/.worktrees/.state/port-allocation-fallback.env"
+printf '%s\n' feature-x > "$repo/.worktree-active"
 : > "$busy_ports"
 
 for missing_bootstrap_path in \
@@ -724,17 +728,17 @@ unset FAIL_BOOTSTRAP_STEP
 printf '%s\n' feature-x > "$repo/.worktree-active"
 touch "$stack_state/test-project-feature-x"
 export FAIL_BOOTSTRAP_STEP=composer
+rm -f "$command_log"
 assert_failure_contains 'Fehler bei Schritt: Composer-Abhängigkeiten installieren' \
     run_command create bootstrap-composer-failure
 assert_eq feature-x "$(<"$repo/.worktree-active")" \
     'failed create dependency install preserves active state'
 assert_contains "$command_log" "SOURCE=$repo/.worktrees/bootstrap-composer-failure"
 assert_contains "$command_log" 'ARGS=down --remove-orphans'
-composer_down_line=$(awk -v target="$repo/.worktrees/bootstrap-composer-failure" '$0 ~ "SOURCE=" target && /ARGS=down --remove-orphans/ { print NR; exit }' "$command_log")
-if [ -n "$composer_down_line" ]; then
-    printf 'ok - create rollback stops target stack\n'
+if ! grep -q "SOURCE=$repo/.worktrees/feature-x.*ARGS=down --remove-orphans" "$command_log"; then
+    printf 'ok - create rollback does not stop the previous stack\n'
 else
-    printf 'not ok - create rollback stops target stack\n'
+    printf 'not ok - create rollback stopped the previous stack\n'
     failures=$((failures + 1))
 fi
 assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x"
@@ -802,9 +806,9 @@ mkdir -p "$stack_state"
 touch "$stack_state/test-project-feature-y"
 printf '8080\n' > "$busy_ports"
 assert_status 0 run_command switch feature-y
-assert_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
 assert_eq feature-y "$(<"$repo/.worktree-active")" \
-    'switch stops fixed stack without active state'
+    'switch starts target without active state'
 : > "$busy_ports"
 
 printf '%s\n' '../invalid' > "$repo/.worktree-active"
@@ -812,11 +816,29 @@ rm -rf "$command_log" "$stack_state"
 mkdir -p "$stack_state"
 touch "$stack_state/test-project-feature-y"
 assert_status 0 run_command switch feature-y
-assert_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
 assert_eq feature-y "$(<"$repo/.worktree-active")" \
-    'switch stops fixed stack with invalid active state'
+    'switch ignores stale active pointer for explicit target'
+
+printf '%s\n' removed-worktree > "$repo/.worktree-active"
+assert_failure_contains 'stale active worktree' run_command status
+assert_status 0 run_command status feature-y
+
+mkdir -p "$repo/.worktrees/.state"
+printf '%s\n' \
+    'WORKTREE_NAME=orphan' \
+    'COMPOSE_PROJECT_NAME=test-project-orphan' \
+    'APP_PORT=8120' \
+    'VITE_PORT=5213' \
+    'FORWARD_DB_PORT=3346' \
+    'FORWARD_REDIS_PORT=6419' \
+    > "$repo/.worktrees/.state/orphan.env"
+assert_output_contains 'orphan' run_command status --all
+assert_status 0 run_command prune
+assert_not_exists "$repo/.worktrees/.state/orphan.env"
 
 assert_failure_contains 'Verwendung:' run_command create feature-z --fresh
+assert_failure_contains 'Verwendung:' run_command status feature-y --all
 
 if [ "$failures" -ne 0 ]; then
     printf '%s test(s) failed\n' "$failures"

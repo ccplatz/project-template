@@ -12,24 +12,32 @@ bin/worktree — Worktree-Verwaltung für das Projekt
 
 Verwendung:
   bin/worktree create <name> [--existing]
+  bin/worktree bootstrap <name>
+  bin/worktree start [<name>] [--fresh]
+  bin/worktree stop [<name>]
   bin/worktree switch <name> [--fresh]
-  bin/worktree start [--fresh]
-  bin/worktree stop
-  bin/worktree status
+  bin/worktree status [<name>]
+  bin/worktree status --all
+  bin/worktree prune
 
 Befehle:
   create <name>       Neuen Worktree anlegen und bootstrappen
     --existing        Branch <name> existiert bereits, nicht von main abzweigen
 
-  switch <name>       Aktiven Worktree wechseln
-    --fresh           Datenbank zurücksetzen (migrate:fresh --seed)
+  bootstrap <name>    Worktree-Abhängigkeiten installieren und vorbereiten
 
-  start               Aktiven Worktree starten
+  start [<name>]      Benannten oder aktiven Worktree starten
     --fresh           Datenbank nach dem Start zurücksetzen
 
-  stop                Aktiven Worktree stoppen
+  stop [<name>]       Benannten oder aktiven Worktree stoppen
 
-  status              Aktiven Worktree anzeigen (Name, Pfad, Branch, Status)
+  switch <name>       Worktree auswählen und starten, andere Stacks bleiben aktiv
+    --fresh           Datenbank zurücksetzen (migrate:fresh --seed)
+
+  status [<name>]     Einen Worktree mit Projekt, URL, Ports und Status anzeigen
+    --all             Alle Worktrees und verwaiste Zustände anzeigen
+
+  prune               Verwaiste Zustandsdateien entfernen
 
 Optionen:
   --help, -h          Diese Hilfe anzeigen
@@ -135,7 +143,6 @@ create_worktree() {
     local target
     validate_worktree_name "$name" || return 1
     ensure_main_sail_setup || return 1
-    port_is_available 8080 || die 'Port 8080 ist bereits belegt' || return 1
     target=$(worktree_path "$name")
 
     if [ -e "$target" ]; then
@@ -155,72 +162,46 @@ create_worktree() {
     write_active_worktree "$name"
 }
 
-start_active() {
-    local fresh=${1:-0}
-    local name
+start_named() {
+    local name=$1
+    local fresh=${2:-0}
     local path
-    name=$(read_active_worktree) || return 1
     path=$(resolve_worktree "$name") || return 1
-
     start_for_worktree "$name" "$path" || return 1
     if [ "$fresh" -eq 1 ]; then
         run_fresh "$name" "$path" || return 1
     fi
-    write_active_worktree "$name"
+}
+
+start_active() {
+    local fresh=${1:-0}
+    local name
+    name=$(active_worktree_name) || return 1
+    start_named "$name" "$fresh"
+}
+
+stop_named() {
+    local name
+    local path
+    name=$1
+    path=$(resolve_worktree "$name") || return 1
+    stop_for_worktree "$name" "$path"
 }
 
 stop_active() {
     local name
-    local path
-    name=$(read_active_worktree) || {
-        printf 'no active worktree is recorded\n' >&2
-        return 1
-    }
-    path=$(resolve_worktree "$name") || return 1
-    stop_for_worktree "$name" "$path"
+    name=$(active_worktree_name) || return 1
+    stop_named "$name"
 }
 
 switch_worktree() {
     local name=$1
     local fresh=${2:-0}
     local target
-    local prior_name=''
-    local prior_path=''
-    local prior_running=0
-    local target_running=0
-    local stop_name=''
-    local stop_path=''
-
     target=$(resolve_worktree "$name") || return 1
     validate_worktree_prerequisites "$target" || return 1
-    if prior_name=$(read_active_worktree 2>/dev/null); then
-        prior_path=$(resolve_worktree "$prior_name" 2>/dev/null) || prior_path=''
-    fi
-
-    if [ -n "$prior_name" ] && [ -n "$prior_path" ] \
-        && stack_is_running_for_worktree "$prior_name" "$prior_path"; then
-        prior_running=1
-    fi
-    if stack_is_running_for_worktree "$name" "$target"; then
-        target_running=1
-    fi
-    if [ "$target_running" -eq 1 ]; then
-        stop_name=$name
-        stop_path=$target
-    elif [ "$prior_running" -eq 1 ]; then
-        stop_name=$prior_name
-        stop_path=$prior_path
-    fi
-
-    if [ -n "$stop_path" ]; then
-        stop_for_worktree "$stop_name" "$stop_path" || return 1
-    fi
-
-    if ! start_for_worktree "$name" "$target"; then
+    if ! start_named "$name" 0; then
         printf 'Start des Worktrees "%s" fehlgeschlagen.\n' "$name" >&2
-        if [ -n "$prior_name" ]; then
-            start_for_worktree "$prior_name" "$prior_path" || true
-        fi
         return 1
     fi
 
@@ -231,21 +212,65 @@ switch_worktree() {
     write_active_worktree "$name"
 }
 
-show_status() {
-    local name
+bootstrap_named() {
+    local name=$1
+    local target
+    target=$(resolve_worktree "$name") || return 1
+    ensure_main_sail_setup || return 1
+    ensure_worktree_state "$name" "$target" || return 1
+    bootstrap_worktree "$name" "$target"
+}
+
+show_status_for_name() {
+    local name=$1
     local path
     local branch
-    name=$(read_active_worktree) || return 1
     path=$(resolve_worktree "$name") || return 1
     branch=$(git -C "$path" branch --show-current)
-    printf 'active: %s\npath: %s\nbranch: %s\nstatus: ' "$name" "$path" "$branch"
+    printf 'active: %s\npath: %s\nbranch: %s\n' "$name" "$path" "$branch"
     if [ ! -f "$(worktree_state_path "$name")" ]; then
-        printf 'unconfigured\n'
-    elif stack_is_running_for_worktree "$name" "$path"; then
-        printf 'running\n'
-    else
-        printf 'stopped\n'
+        printf 'status: unconfigured\ninitialize: bin/worktree start %s\n' "$name"
+        return 0
     fi
+    load_worktree_state "$name" || return 1
+    printf 'project: %s\nurl: http://127.0.0.1:%s\nports: app=%s vite=%s db=%s redis=%s\n' \
+        "$WORKTREE_STATE_COMPOSE_PROJECT_NAME" "$WORKTREE_STATE_APP_PORT" \
+        "$WORKTREE_STATE_APP_PORT" "$WORKTREE_STATE_VITE_PORT" \
+        "$WORKTREE_STATE_DB_PORT" "$WORKTREE_STATE_REDIS_PORT"
+    if stack_is_running_for_worktree "$name" "$path"; then
+        printf 'status: running\n'
+    else
+        printf 'status: stopped\n'
+    fi
+}
+
+show_status() {
+    local name
+    name=$(active_worktree_name) || return 1
+    if ! resolve_worktree "$name" >/dev/null 2>&1; then
+        printf 'stale active worktree: %s\n' "$name" >&2
+        return 1
+    fi
+    show_status_for_name "$name"
+}
+
+show_all_status() {
+    local path
+    local name
+    local state_name
+    for path in "$worktree_root/.worktrees"/*; do
+        [ -d "$path" ] || continue
+        name=${path##*/}
+        [ "$name" = .state ] && continue
+        validate_worktree_name "$name" || continue
+        show_status_for_name "$name"
+    done
+    while IFS= read -r state_name; do
+        [ -n "$state_name" ] || continue
+        if ! resolve_worktree "$state_name" >/dev/null 2>&1; then
+            printf 'orphaned: %s\n' "$state_name"
+        fi
+    done < <(list_worktree_state_names)
 }
 
 if [ "$#" -eq 0 ]; then
@@ -267,6 +292,13 @@ case "$command" in
             *) usage >&2; exit 1 ;;
         esac
         ;;
+    bootstrap)
+        if [ "$#" -ne 1 ]; then
+            usage >&2
+            exit 1
+        fi
+        bootstrap_named "$1"
+        ;;
     switch)
         if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
             usage >&2
@@ -283,24 +315,43 @@ case "$command" in
             start_active 0
         elif [ "$#" -eq 1 ] && [ "$1" = --fresh ]; then
             start_active 1
+        elif [ "$#" -eq 1 ]; then
+            start_named "$1" 0
+        elif [ "$#" -eq 2 ] && [ "$2" = --fresh ]; then
+            start_named "$1" 1
         else
             usage >&2
             exit 1
         fi
         ;;
     stop)
-        if [ "$#" -ne 0 ]; then
+        if [ "$#" -eq 0 ]; then
+            stop_active
+        elif [ "$#" -eq 1 ]; then
+            stop_named "$1"
+        else
             usage >&2
             exit 1
         fi
-        stop_active
         ;;
     status)
+        if [ "$#" -eq 0 ]; then
+            show_status
+        elif [ "$#" -eq 1 ] && [ "$1" = --all ]; then
+            show_all_status
+        elif [ "$#" -eq 1 ]; then
+            show_status_for_name "$1"
+        else
+            usage >&2
+            exit 1
+        fi
+        ;;
+    prune)
         if [ "$#" -ne 0 ]; then
             usage >&2
             exit 1
         fi
-        show_status
+        prune_worktree_state
         ;;
     *)
         usage >&2

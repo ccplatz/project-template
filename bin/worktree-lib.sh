@@ -574,6 +574,59 @@ active_worktree() {
     resolve_worktree "$active_name"
 }
 
+active_worktree_name() {
+    local name
+    name=$(read_active_worktree) || {
+        printf 'no active worktree is recorded; provide a worktree name\n' >&2
+        return 1
+    }
+    validate_worktree_name "$name" || {
+        printf 'stale active worktree: %s\n' "$name" >&2
+        return 1
+    }
+    printf '%s\n' "$name"
+}
+
+list_worktree_state_names() {
+    local state_file
+    local name
+    local state_dir
+    state_dir=$(worktree_state_dir)
+    for state_file in "$state_dir"/*.env; do
+        [ -f "$state_file" ] || continue
+        name=${state_file##*/}
+        name=${name%.env}
+        printf '%s\n' "$name"
+    done
+}
+
+worktree_is_listed_by_git() {
+    local path=$1
+    local listing
+    listing=$(run_git worktree list --porcelain 2>/dev/null) || return 1
+    case "$listing" in
+        *$'worktree '"$path"$'\n'*) return 0 ;;
+        *$'worktree '"$path") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+prune_worktree_state() {
+    local name
+    local path
+    local state_file
+    local state_dir
+    state_dir=$(worktree_state_dir)
+    for name in $(list_worktree_state_names); do
+        state_file=$(worktree_state_path "$name") || continue
+        path=$(worktree_path "$name")
+        if [ ! -d "$path" ] || ! worktree_is_listed_by_git "$path"; then
+            rm -f "$state_file"
+            printf 'pruned: %s\n' "$name"
+        fi
+    done
+}
+
 validate_worktree() {
     resolve_worktree "$1" >/dev/null
 }
