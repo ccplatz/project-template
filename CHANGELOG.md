@@ -2,6 +2,22 @@
 
 All notable changes to this template are documented here.
 
+## [0.2.0] - 2026-08-08
+
+### Added
+
+- Parallel Worktree Sail stacks with isolated Compose project names and persisted port groups.
+- Named lifecycle commands, stale-state reporting, and orphaned-state pruning.
+
+### Changed
+
+- `switch` starts the selected Worktree without stopping other running stacks.
+- Worktree-managed HTTP access uses explicit `APP_PORT` values instead of an implicit port 80 fallback.
+
+### Migration
+
+- Stop legacy single-stack containers before the first state allocation, then use `bin/worktree status --all` to verify the new project and port assignments.
+
 ## [0.1.1] - 2026-08-08
 
 ### Fixed

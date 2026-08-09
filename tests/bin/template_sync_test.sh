@@ -125,6 +125,15 @@ assert_file_contains "$script_dir/../../docs/worktree.md" 'APP_PORT' \
     'worktree documentation defines the managed HTTP port'
 assert_file_contains "$script_dir/../../docs/worktree.md" 'http://127.0.0.1:<APP_PORT>' \
     'worktree documentation defines the canonical URL'
+assert_file_contains "$script_dir/../../AGENTS.md" \
+    'Multiple worktree stacks can run at the same time' \
+    'agent guide documents parallel worktree stacks'
+assert_file_contains "$script_dir/../../AGENTS.md" \
+    'switch' 'agent guide documents non-destructive switching'
+assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.2.0]' \
+    'changelog records the parallel stack release'
+assert_eq '0.2.0' "$(<"$script_dir/../../VERSION")" \
+    'VERSION records the parallel stack release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" '.template/template.lock' \
     'sync documentation defines the lock file'
 assert_file_contains "$script_dir/../../docs/template-sync.md" \
