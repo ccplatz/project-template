@@ -411,7 +411,7 @@ stack_is_running_for_worktree() {
     local mysql_init_script=
 
     load_worktree_state "$name" || return 1
-    if [ ! -d "$path/vendor/laravel/sail" ]; then
+    if [ ! -d "$path/vendor/laravel/sail" ] || [ ! -x "$path/vendor/bin/sail" ]; then
         sail_bin="$worktree_root/vendor/bin/sail"
         mysql_init_script="$worktree_root/vendor/laravel/sail/database/mysql/create-testing-database.sh"
     fi
@@ -445,6 +445,18 @@ ensure_main_sail_setup() {
     fi
 }
 
+find_compose_file() {
+    local path=$1
+    local filename
+    for filename in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
+        if [ -f "$path/$filename" ]; then
+            printf '%s\n' "$path/$filename"
+            return 0
+        fi
+    done
+    return 1
+}
+
 validate_worktree_prerequisites() {
     local path=$1
 
@@ -452,10 +464,14 @@ validate_worktree_prerequisites() {
         die "Worktree-Prüfung fehlgeschlagen: $path/.env fehlt."
         return 1
     fi
-    if [ ! -f "$path/compose.yaml" ]; then
-        die "Worktree-Prüfung fehlgeschlagen: $path/compose.yaml fehlt."
+    if ! find_compose_file "$path" >/dev/null; then
+        die "Worktree-Prüfung fehlgeschlagen: keine unterstützte Compose-Datei in $path gefunden (erwartet: compose.yaml, compose.yml, docker-compose.yml oder docker-compose.yaml)."
         return 1
     fi
+}
+
+validate_worktree_sail_prerequisites() {
+    local path=$1
 
     if [ -d "$path/vendor/laravel/sail" ]; then
         if [ ! -x "$path/vendor/bin/sail" ]; then
@@ -474,6 +490,30 @@ validate_worktree_prerequisites() {
     fi
 
     ensure_main_sail_setup
+}
+
+validate_start_prerequisites() {
+    local path=$1
+
+    validate_worktree_prerequisites "$path" || return 1
+    validate_worktree_sail_prerequisites "$path"
+}
+
+composer_artifacts_valid() {
+    local path=$1
+    [ -f "$path/vendor/autoload.php" ] \
+        && [ -x "$path/vendor/bin/sail" ] \
+        && [ -d "$path/vendor/laravel/sail" ]
+}
+
+npm_artifacts_valid() {
+    local path=$1
+    [ -d "$path/node_modules" ]
+}
+
+application_key_is_set() {
+    local path=$1
+    grep -Eq '^APP_KEY=.+$' "$path/.env" 2>/dev/null
 }
 
 start_stack() {
@@ -515,6 +555,7 @@ start_for_worktree() {
     local build_dockerfile=
     local mysql_init_script=
 
+    validate_start_prerequisites "$path" || return 1
     ensure_worktree_state "$name" "$path" || return 1
     sail_bin=${SAIL_BIN:-$path/vendor/bin/sail}
     if [ ! -d "$path/vendor/laravel/sail" ]; then
@@ -532,6 +573,18 @@ start_for_worktree() {
     fi
 }
 
+cleanup_failed_target_start() {
+    local name=$1
+    local path=$2
+    local sail_bin=$3
+    local mysql_init_script=$4
+
+    if ! run_worktree_sail "$name" "$path" "$sail_bin" "$mysql_init_script" \
+        '' '' down --remove-orphans; then
+        printf 'Rollback fehlgeschlagen: Ziel-Stack konnte nicht gestoppt werden.\n' >&2
+    fi
+}
+
 stop_for_worktree() {
     local name=$1
     local path=$2
@@ -542,7 +595,7 @@ stop_for_worktree() {
         die "Zustand für Worktree $name nicht initialisiert; zuerst starten mit: bin/worktree start"
         return 1
     fi
-    if [ ! -d "$path/vendor/laravel/sail" ]; then
+    if [ ! -d "$path/vendor/laravel/sail" ] || [ ! -x "$path/vendor/bin/sail" ]; then
         sail_bin="$worktree_root/vendor/bin/sail"
         mysql_init_script="$worktree_root/vendor/laravel/sail/database/mysql/create-testing-database.sh"
     fi

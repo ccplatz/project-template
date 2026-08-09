@@ -93,47 +93,39 @@ bootstrap_worktree() {
     if [ ! -f "$target/.env" ] && [ -f "$target/.env.template" ]; then
         run_create_step 'env kopieren' cp "$target/.env.template" "$target/.env" || return 1
     fi
+    validate_worktree_prerequisites "$target" || return 1
+    ensure_worktree_state "$name" "$target" || return 1
+    ensure_main_sail_setup || return 1
 
-    bootstrap_rollback() {
-        local rollback_status=0
-
-        if ! run_bootstrap_command "$name" "$target" "$build_context" "$main_sail" \
-            "$mysql_init_script" down --remove-orphans; then
-            printf 'Rollback fehlgeschlagen: Ziel-Stack konnte nicht gestoppt werden.\n' >&2
-            rollback_status=1
-        fi
-        return "$rollback_status"
-    }
-
-    run_create_step 'Stack starten' run_bootstrap_command "$name" "$target" "$build_context" \
-        "$main_sail" "$mysql_init_script" up -d --remove-orphans || {
-        bootstrap_rollback
-        return 1
-    }
-    run_create_step 'Composer-Abhängigkeiten installieren' run_bootstrap_command "$name" "$target" \
-        "$build_context" "$main_sail" "$mysql_init_script" composer install || {
-        bootstrap_rollback
-        return 1
-    }
-
-    local target_sail=$target/vendor/bin/sail
-    if [ ! -x "$target_sail" ]; then
-        command_failed 'Sail nach Composer-Installation nicht gefunden'
-        bootstrap_rollback
+    if ! run_create_step 'Stack starten' run_bootstrap_command "$name" "$target" "$build_context" \
+        "$main_sail" "$mysql_init_script" up -d --remove-orphans; then
+        cleanup_failed_target_start "$name" "$target" "$main_sail" "$mysql_init_script" || true
         return 1
     fi
 
-    run_create_step 'Node-Abhängigkeiten installieren' run_bootstrap_command "$name" "$target" '' \
-        "$target_sail" '' npm install || {
-        bootstrap_rollback
+    if ! composer_artifacts_valid "$target"; then
+        run_create_step 'Composer-Abhängigkeiten installieren' run_bootstrap_command "$name" "$target" \
+            "$build_context" "$main_sail" "$mysql_init_script" composer install || return 1
+    fi
+    if ! composer_artifacts_valid "$target"; then
+        command_failed 'Sail nach Composer-Installation nicht gefunden'
         return 1
-    }
-    if ! grep -Eq '^APP_KEY=.+$' "$target/.env" 2>/dev/null; then
-        run_create_step 'Anwendungsschlüssel erzeugen' run_bootstrap_command "$name" "$target" '' \
-            "$target_sail" '' artisan key:generate || {
-            bootstrap_rollback
+    fi
+
+    local target_sail=$target/vendor/bin/sail
+    if ! npm_artifacts_valid "$target" || ! application_key_is_set "$target"; then
+        if [ ! -x "$target_sail" ]; then
+            command_failed 'Sail nach Composer-Installation nicht gefunden'
             return 1
-        }
+        fi
+    fi
+    if ! npm_artifacts_valid "$target"; then
+        run_create_step 'Node-Abhängigkeiten installieren' run_bootstrap_command "$name" "$target" '' \
+            "$target_sail" '' npm install || return 1
+    fi
+    if ! application_key_is_set "$target"; then
+        run_create_step 'Anwendungsschlüssel erzeugen' run_bootstrap_command "$name" "$target" '' \
+            "$target_sail" '' artisan key:generate || return 1
     fi
 }
 
@@ -157,7 +149,6 @@ create_worktree() {
         run_git worktree add -b "$name" "$target" main || return 1
     fi
 
-    ensure_worktree_state "$name" "$target" || return 1
     bootstrap_worktree "$name" "$target" || return 1
     write_active_worktree "$name"
 }
@@ -199,7 +190,6 @@ switch_worktree() {
     local fresh=${2:-0}
     local target
     target=$(resolve_worktree "$name") || return 1
-    validate_worktree_prerequisites "$target" || return 1
     if ! start_named "$name" 0; then
         printf 'Start des Worktrees "%s" fehlgeschlagen.\n' "$name" >&2
         return 1
@@ -216,8 +206,6 @@ bootstrap_named() {
     local name=$1
     local target
     target=$(resolve_worktree "$name") || return 1
-    ensure_main_sail_setup || return 1
-    ensure_worktree_state "$name" "$target" || return 1
     bootstrap_worktree "$name" "$target"
 }
 

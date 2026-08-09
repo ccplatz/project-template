@@ -180,6 +180,27 @@ assert_not_exists() {
     fi
 }
 
+mock_call_count_for_test() {
+    local step=$1
+    local call_file="$repo/mock-calls/$step"
+    local count=0
+
+    if [ -f "$call_file" ]; then
+        IFS= read -r count < "$call_file"
+    fi
+    printf '%s\n' "$count"
+}
+
+assert_exists() {
+    local path=$1
+    if [ -e "$path" ]; then
+        printf 'ok - %s exists\n' "$path"
+    else
+        printf 'not ok - %s does not exist\n' "$path"
+        failures=$((failures + 1))
+    fi
+}
+
 assert_not_executable() {
     local path=$1
     if [ -x "$path" ]; then
@@ -187,6 +208,16 @@ assert_not_executable() {
         failures=$((failures + 1))
     else
         printf 'ok - %s is not executable\n' "$path"
+    fi
+}
+
+assert_executable() {
+    local path=$1
+    if [ -x "$path" ]; then
+        printf 'ok - %s is executable\n' "$path"
+    else
+        printf 'not ok - %s is not executable\n' "$path"
+        failures=$((failures + 1))
     fi
 }
 
@@ -450,7 +481,9 @@ assert_contains "$MOCK_SAIL_LOG" "SAIL_BUILD_CONTEXT=$repo/vendor/laravel/sail/r
 assert_contains "$MOCK_SAIL_LOG" 'SAIL_BUILD_DOCKERFILE=Dockerfile'
 assert_not_contains "$MOCK_SAIL_LOG" 'migrate:fresh'
 
-mkdir -p "$repo/.worktrees/feature-x/vendor/laravel/sail"
+mkdir -p "$repo/.worktrees/feature-x/vendor/laravel/sail/runtimes/8.5" \
+    "$repo/.worktrees/feature-x/vendor/laravel/sail/database/mysql"
+touch "$repo/.worktrees/feature-x/vendor/laravel/sail/database/mysql/create-testing-database.sh"
 : > "$MOCK_SAIL_LOG"
 assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
 assert_contains "$MOCK_SAIL_LOG" "SAIL_BIN=$repo/.worktrees/feature-x/vendor/bin/sail"
@@ -491,6 +524,17 @@ cat > "$repo/vendor/bin/sail" <<'EOF'
 
 state_marker="${STACK_STATE_DIR:?}/${COMPOSE_PROJECT_NAME:?}"
 
+mock_call_count() {
+    local step=$1
+    local call_file="${MOCK_CALL_DIR:?}/$step"
+    local count=0
+    if [ -f "$call_file" ]; then
+        IFS= read -r count < "$call_file"
+    fi
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$call_file"
+}
+
 printf 'PWD=%s SOURCE=%s BIN=%s BUILD_CONTEXT=%s BUILD_DOCKERFILE=%s MYSQL_INIT=%s ARGS=%s PROJECT=%s APP=%s VITE=%s DB=%s REDIS=%s\n' \
     "$PWD" "${SAIL_SOURCE_PATH:-}" "${SAIL_BIN:-}" "${SAIL_BUILD_CONTEXT:-}" \
     "${SAIL_BUILD_DOCKERFILE:-}" "${SAIL_MYSQL_INIT_SCRIPT:-}" "$*" "${COMPOSE_PROJECT_NAME:-}" \
@@ -516,22 +560,33 @@ case "$*" in
         : > "${BUSY_PORTS:?}"
         ;;
     'composer install')
-        if [ "${FAIL_BOOTSTRAP_STEP:-}" = composer ]; then exit 1; fi
+        mock_call_count composer
+        if [ "${FAIL_BOOTSTRAP_STEP:-}" = composer ]; then
+            exit 1
+        fi
+        mkdir -p "$SAIL_SOURCE_PATH/vendor/bin" "$SAIL_SOURCE_PATH/vendor/laravel/sail"
+        touch "$SAIL_SOURCE_PATH/vendor/autoload.php"
         if [ "${PARTIAL_COMPOSER_INSTALL:-0}" -eq 1 ]; then
-            mkdir -p "$SAIL_SOURCE_PATH/vendor/laravel/sail" "$SAIL_SOURCE_PATH/vendor/bin"
             touch "$SAIL_SOURCE_PATH/vendor/bin/sail"
             chmod 644 "$SAIL_SOURCE_PATH/vendor/bin/sail"
             exit 0
         fi
-        mkdir -p "$SAIL_SOURCE_PATH/vendor/bin"
         cp "$ROOT_SAIL" "$SAIL_SOURCE_PATH/vendor/bin/sail"
         chmod +x "$SAIL_SOURCE_PATH/vendor/bin/sail"
         ;;
     'npm install')
-        if [ "${FAIL_BOOTSTRAP_STEP:-}" = npm ]; then exit 1; fi
+        mock_call_count npm
+        if [ "${FAIL_BOOTSTRAP_STEP:-}" = npm ]; then
+            exit 1
+        fi
+        mkdir -p "$SAIL_SOURCE_PATH/node_modules"
         ;;
     'artisan key:generate')
-        if [ "${FAIL_BOOTSTRAP_STEP:-}" = key ]; then exit 1; fi
+        mock_call_count key
+        if [ "${FAIL_BOOTSTRAP_STEP:-}" = key ]; then
+            exit 1
+        fi
+        printf 'APP_KEY=base64:generated-by-test\n' > "$SAIL_SOURCE_PATH/.env"
         ;;
     'artisan migrate:fresh --seed')
         if [ "${FAIL_FRESH:-0}" -eq 1 ]; then exit 1; fi
@@ -546,6 +601,9 @@ cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-y/vendor/bin/sail"
 chmod +x "$repo/.worktrees/feature-y/vendor/bin/sail"
 export COMMAND_LOG="$command_log" STACK_STATE_DIR="$stack_state" ROOT_SAIL="$repo/vendor/bin/sail" \
     ROOT_MYSQL_INIT="$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
+MOCK_CALL_DIR="$repo/mock-calls"
+mkdir -p "$MOCK_CALL_DIR"
+export MOCK_CALL_DIR
 PATH="$repo/bin:$old_path"
 : > "$busy_ports"
 
@@ -702,77 +760,223 @@ remove_test_worktree() {
     git -C "$repo" worktree remove -f "$repo/.worktrees/$1" >/dev/null 2>&1 || true
 }
 
+bootstrap_fixture() {
+    local name=$1
+    git -C "$repo" worktree add -q -b "$name" "$repo/.worktrees/$name"
+    printf 'APP_KEY=\n' > "$repo/.worktrees/$name/.env"
+    cp "$repo/compose.yaml" "$repo/.worktrees/$name/compose.yaml"
+}
+
 rm -rf "$command_log" "$stack_state" "$repo/.worktree-active"
 mkdir -p "$stack_state"
-export PARTIAL_COMPOSER_INSTALL=1
-assert_failure_contains 'Sail nach Composer-Installation nicht gefunden' \
-    run_command create partial-composer-failure
-assert_contains "$command_log" \
-    "SOURCE=$repo/.worktrees/partial-composer-failure BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=down --remove-orphans"
-assert_not_executable "$repo/.worktrees/partial-composer-failure/vendor/bin/sail"
-assert_not_exists "$stack_state/test-project-partial-composer-failure"
-assert_not_exists "$repo/.worktree-active"
-remove_test_worktree partial-composer-failure
-unset PARTIAL_COMPOSER_INSTALL
 
-printf '%s\n' existing-source > "$repo/.worktree-active"
-export FAIL_BOOTSTRAP_STEP=up
-assert_failure_contains 'Fehler bei Schritt: Stack starten' run_command create bootstrap-up-failure
-assert_eq existing-source "$(<"$repo/.worktree-active")" \
-    'failed create startup preserves active state'
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/bootstrap-up-failure"
-assert_contains "$command_log" 'ARGS=down --remove-orphans'
-remove_test_worktree bootstrap-up-failure
-unset FAIL_BOOTSTRAP_STEP
-
-printf '%s\n' feature-x > "$repo/.worktree-active"
-touch "$stack_state/test-project-feature-x"
-export FAIL_BOOTSTRAP_STEP=composer
-rm -f "$command_log"
-assert_failure_contains 'Fehler bei Schritt: Composer-Abhängigkeiten installieren' \
-    run_command create bootstrap-composer-failure
-assert_eq feature-x "$(<"$repo/.worktree-active")" \
-    'failed create dependency install preserves active state'
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/bootstrap-composer-failure"
-assert_contains "$command_log" 'ARGS=down --remove-orphans'
-if ! grep -q "SOURCE=$repo/.worktrees/feature-x.*ARGS=down --remove-orphans" "$command_log"; then
-    printf 'ok - create rollback does not stop the previous stack\n'
-else
-    printf 'not ok - create rollback stopped the previous stack\n'
-    failures=$((failures + 1))
-fi
-assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x"
-remove_test_worktree bootstrap-composer-failure
-unset FAIL_BOOTSTRAP_STEP
-
-for bootstrap_failure in npm key; do
-    rm -rf "$command_log" "$stack_state"
+for failure_step in up composer npm key; do
+    failure_name="create-$failure_step-failure"
     printf '%s\n' feature-x > "$repo/.worktree-active"
+    rm -f "$command_log"
+    rm -rf "$stack_state"
     mkdir -p "$stack_state"
     touch "$stack_state/test-project-feature-x"
-    export FAIL_BOOTSTRAP_STEP=$bootstrap_failure
-    assert_failure_contains 'Fehler bei Schritt:' run_command create "bootstrap-$bootstrap_failure-failure"
-    assert_eq feature-x "$(<"$repo/.worktree-active")" \
-        "failed $bootstrap_failure bootstrap preserves active state"
-    assert_contains "$command_log" "SOURCE=$repo/.worktrees/bootstrap-$bootstrap_failure-failure"
-    assert_contains "$command_log" 'ARGS=down --remove-orphans'
-    remove_test_worktree "bootstrap-$bootstrap_failure-failure"
+    export FAIL_BOOTSTRAP_STEP=$failure_step
+    assert_failure_contains 'Fehler bei Schritt:' run_command create "$failure_name"
     unset FAIL_BOOTSTRAP_STEP
+    assert_eq feature-x "$(<"$repo/.worktree-active")" \
+        'failed create preserves the previous active Worktree'
+    assert_exists "$repo/.worktrees/$failure_name"
+    assert_exists "$repo/.worktrees/.state/$failure_name.env"
+    assert_exists "$stack_state/test-project-feature-x"
+    if [ "$failure_step" != up ]; then
+        load_worktree_state "$failure_name"
+        failure_project="$WORKTREE_STATE_COMPOSE_PROJECT_NAME"
+        assert_exists "$stack_state/$failure_project"
+        failure_path="$repo/.worktrees/$failure_name"
+        failure_head_inode=$(stat -c %i "$(git -C "$failure_path" rev-parse --git-dir)/HEAD")
+        assert_status 0 run_command bootstrap "$failure_name"
+        assert_exists "$failure_path"
+        failure_head_inode_after=$(stat -c %i "$(git -C "$failure_path" rev-parse --git-dir)/HEAD")
+        assert_eq "$failure_head_inode" "$failure_head_inode_after" \
+            "$failure_name retry preserves linked Worktree Git metadata"
+    else
+        assert_not_exists "$stack_state/test-project-$failure_name"
+    fi
+    remove_test_worktree "$failure_name"
 done
+
+rm -rf "$command_log" "$stack_state"
+mkdir -p "$stack_state"
+touch "$stack_state/test-project-feature-x"
+printf '%s\n' feature-x > "$repo/.worktree-active"
+: > "$command_log"
+assert_status 0 run_command bootstrap feature-y
+assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x"
+assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=down --remove-orphans"
+assert_exists "$stack_state/test-project-feature-x"
+assert_eq feature-x "$(<"$repo/.worktree-active")" \
+    'explicit bootstrap preserves active selection'
+
+rm -f "$command_log"
+rm -rf "$stack_state"
+mkdir -p "$stack_state"
+touch "$stack_state/test-project-feature-x"
+printf '%s\n' feature-x > "$repo/.worktree-active"
+export FAIL_BOOTSTRAP_STEP=up
+assert_failure_contains 'Fehler bei Schritt: Stack starten' \
+    run_command bootstrap feature-y
+unset FAIL_BOOTSTRAP_STEP
+assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-y"
+assert_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x"
+assert_exists "$stack_state/test-project-feature-x"
+assert_eq feature-x "$(<"$repo/.worktree-active")" \
+    'failed target start preserves active selection'
+rm -rf "$repo/.worktrees/feature-y/vendor"
+mkdir -p "$repo/.worktrees/feature-y/vendor/bin"
+cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-y/vendor/bin/sail"
+chmod +x "$repo/.worktrees/feature-y/vendor/bin/sail"
+
+for failure_step in up composer npm key; do
+    failure_name="bootstrap-$failure_step-failure"
+    bootstrap_fixture "$failure_name"
+    printf '%s\n' feature-x > "$repo/.worktree-active"
+    rm -f "$command_log"
+    rm -rf "$stack_state"
+    mkdir -p "$stack_state"
+    touch "$stack_state/test-project-feature-x"
+    export FAIL_BOOTSTRAP_STEP=$failure_step
+    assert_failure_contains 'Fehler bei Schritt:' run_command bootstrap "$failure_name"
+    load_worktree_state "$failure_name"
+    failure_project="$WORKTREE_STATE_COMPOSE_PROJECT_NAME"
+    case "$failure_step" in
+        up)
+            assert_contains "$command_log" "SOURCE=$repo/.worktrees/$failure_name"
+            assert_contains "$command_log" 'ARGS=down --remove-orphans'
+            assert_not_exists "$stack_state/$failure_project"
+            ;;
+        composer|npm|key)
+            assert_contains "$command_log" 'ARGS=up -d --remove-orphans'
+            assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
+            assert_exists "$stack_state/$failure_project"
+            ;;
+    esac
+    assert_exists "$stack_state/test-project-feature-x"
+    assert_eq feature-x "$(<"$repo/.worktree-active")" \
+        "$failure_name preserves the active worktree"
+    unset FAIL_BOOTSTRAP_STEP
+    if [ "$failure_step" = up ]; then
+        remove_test_worktree "$failure_name"
+    fi
+done
+
+for failure_step in composer npm key; do
+    failure_name="bootstrap-$failure_step-failure"
+    before_composer_calls=$(mock_call_count_for_test composer)
+    before_npm_calls=$(mock_call_count_for_test npm)
+    before_key_calls=$(mock_call_count_for_test key)
+    assert_status 0 run_command bootstrap "$failure_name"
+    case "$failure_step" in
+        composer)
+            assert_eq "$((before_composer_calls + 1))" "$(mock_call_count_for_test composer)" \
+                "$failure_name retries Composer"
+            assert_eq "$((before_npm_calls + 1))" "$(mock_call_count_for_test npm)" \
+                "$failure_name runs npm after Composer"
+            assert_eq "$((before_key_calls + 1))" "$(mock_call_count_for_test key)" \
+                "$failure_name runs key generation after npm"
+            ;;
+        npm)
+            assert_eq "$before_composer_calls" "$(mock_call_count_for_test composer)" \
+                "$failure_name skips Composer on retry"
+            assert_eq "$((before_npm_calls + 1))" "$(mock_call_count_for_test npm)" \
+                "$failure_name retries npm"
+            assert_eq "$((before_key_calls + 1))" "$(mock_call_count_for_test key)" \
+                "$failure_name runs key generation after npm"
+            ;;
+        key)
+            assert_eq "$before_composer_calls" "$(mock_call_count_for_test composer)" \
+                "$failure_name skips Composer on retry"
+            assert_eq "$before_npm_calls" "$(mock_call_count_for_test npm)" \
+                "$failure_name skips npm on retry"
+            assert_eq "$((before_key_calls + 1))" "$(mock_call_count_for_test key)" \
+                "$failure_name retries key generation"
+            ;;
+    esac
+    first_composer_calls=$(mock_call_count_for_test composer)
+    first_npm_calls=$(mock_call_count_for_test npm)
+    first_key_calls=$(mock_call_count_for_test key)
+    assert_status 0 run_command bootstrap "$failure_name"
+    assert_eq "$first_composer_calls" "$(mock_call_count_for_test composer)" \
+        "$failure_name does not rerun Composer after valid artifacts"
+    assert_eq "$first_npm_calls" "$(mock_call_count_for_test npm)" \
+        "$failure_name does not rerun npm after valid artifacts"
+    assert_eq "$first_key_calls" "$(mock_call_count_for_test key)" \
+        "$failure_name does not rerun key generation after a valid APP_KEY"
+    remove_test_worktree "$failure_name"
+done
+
+bootstrap_fixture partial-composer-failure
+export PARTIAL_COMPOSER_INSTALL=1
+assert_failure_contains 'Sail nach Composer-Installation nicht gefunden' \
+    run_command bootstrap partial-composer-failure
+assert_exists "$stack_state/test-project-partial-composer-failure"
+assert_not_executable "$repo/.worktrees/partial-composer-failure/vendor/bin/sail"
+: > "$command_log"
+assert_status 0 run_command status partial-composer-failure
+assert_contains "$command_log" "SOURCE=$repo/.worktrees/partial-composer-failure BIN=$repo/vendor/bin/sail"
+assert_contains "$command_log" "ARGS=ps -q laravel.test PROJECT=test-project-partial-composer-failure"
+: > "$command_log"
+assert_status 0 run_command stop partial-composer-failure
+assert_contains "$command_log" "SOURCE=$repo/.worktrees/partial-composer-failure BIN=$repo/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE= MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=down --remove-orphans PROJECT=test-project-partial-composer-failure"
+assert_not_exists "$stack_state/test-project-partial-composer-failure"
+unset PARTIAL_COMPOSER_INSTALL
+: > "$command_log"
+assert_status 0 run_command bootstrap partial-composer-failure
+assert_contains "$command_log" "SOURCE=$repo/.worktrees/partial-composer-failure BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=up -d --remove-orphans PROJECT=test-project-partial-composer-failure"
+assert_executable "$repo/.worktrees/partial-composer-failure/vendor/bin/sail"
+remove_test_worktree partial-composer-failure
 
 rm -rf "$command_log" "$stack_state"
 printf '%s\n' feature-x > "$repo/.worktree-active"
 mkdir -p "$stack_state"
 touch "$stack_state/test-project-feature-x"
 rm -f "$repo/.worktrees/feature-y/.env"
+: > "$command_log"
 assert_failure_contains '.env fehlt' run_command switch feature-y
-assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
 printf 'APP_KEY=base64:feature-y\n' > "$repo/.worktrees/feature-y/.env"
 
-mv "$repo/.worktrees/feature-y/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml.missing"
-assert_failure_contains 'compose.yaml fehlt' run_command switch feature-y
-assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
-mv "$repo/.worktrees/feature-y/compose.yaml.missing" "$repo/.worktrees/feature-y/compose.yaml"
+rm -f "$repo/.worktrees/feature-y/compose.yaml" \
+    "$repo/.worktrees/feature-y/compose.yml" \
+    "$repo/.worktrees/feature-y/docker-compose.yml" \
+    "$repo/.worktrees/feature-y/docker-compose.yaml"
+: > "$command_log"
+assert_failure_contains 'keine unterstützte Compose-Datei' run_command switch feature-y
+assert_failure_contains 'keine unterstützte Compose-Datei' run_command bootstrap feature-y
+assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
+cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
+
+for compose_name in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
+    if [ "$compose_name" != compose.yaml ]; then
+        mv "$repo/.worktrees/feature-y/compose.yaml" "$repo/.worktrees/feature-y/$compose_name"
+    fi
+    assert_status 0 validate_worktree_prerequisites "$repo/.worktrees/feature-y"
+    if [ "$compose_name" != compose.yaml ]; then
+        mv "$repo/.worktrees/feature-y/$compose_name" "$repo/.worktrees/feature-y/compose.yaml"
+    fi
+done
+
+rm -f "$repo/.worktrees/feature-y/compose.yaml" \
+    "$repo/.worktrees/feature-y/compose.yml" \
+    "$repo/.worktrees/feature-y/docker-compose.yml" \
+    "$repo/.worktrees/feature-y/docker-compose.yaml"
+: > "$command_log"
+assert_failure_contains 'keine unterstützte Compose-Datei' run_command start feature-y
+assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
+cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
+
+mkdir -p "$repo/.worktrees/feature-y/vendor/laravel/sail"
+: > "$command_log"
+assert_failure_contains 'Sail-Runtime fehlt' run_command start feature-y
+assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
+rm -rf "$repo/.worktrees/feature-y/vendor/laravel/sail"
 
 mv "$repo/vendor/bin/sail" "$repo/vendor/bin/sail.missing"
 assert_failure_contains 'Haupt-Checkout benötigt eine Sail-Installation' run_command switch feature-y

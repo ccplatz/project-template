@@ -22,6 +22,40 @@ Worktree stack. The `.worktree-active` file is only a convenience pointer for
 commands without an explicit name; it is never used to choose an unrelated
 stack to stop.
 
+## Bootstrap
+
+`bootstrap <name>` is a resumable, safe operation. It skips valid artifacts and
+can be rerun with the same command after a failed dependency or key step. Its
+sequence is:
+
+1. Create `.env` from `.env.template` when `.env` is missing.
+2. Validate a supported Compose filename before starting anything.
+3. Load the existing Worktree state or allocate it when it does not exist.
+4. Start only the target stack.
+5. Install Composer dependencies when valid Composer/Sail artifacts are absent.
+6. Verify the target Sail executable.
+7. Install npm dependencies when `node_modules` is absent.
+8. Generate `APP_KEY` only when it is empty.
+
+The supported Compose filenames are exactly:
+
+```text
+compose.yaml
+compose.yml
+docker-compose.yml
+docker-compose.yaml
+```
+
+Bootstrap does not generate or symlink a Compose file. A missing supported
+Compose file fails during preflight, before `up` runs. If starting the target
+fails, cleanup stops only that target stack and does not affect other running
+stacks. Composer, npm, and `APP_KEY` failures leave the target stack running;
+rerun `./bin/worktree bootstrap <name>` to retry, with already valid artifacts
+skipped.
+
+An explicit `bootstrap <name>` does not change `.worktree-active`. `create`
+updates `.worktree-active` only after the complete bootstrap succeeds.
+
 ## State And Ports
 
 The selected Worktree state is persisted in
