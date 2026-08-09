@@ -837,6 +837,26 @@ assert_output_contains 'orphan' run_command status --all
 assert_status 0 run_command prune
 assert_not_exists "$repo/.worktrees/.state/orphan.env"
 
+git -C "$repo" worktree add -q -b registered-orphan "$repo/.worktrees/registered-orphan"
+printf '%s\n' \
+    'WORKTREE_NAME=registered-orphan' \
+    'COMPOSE_PROJECT_NAME=test-project-registered-orphan' \
+    'APP_PORT=8130' \
+    'VITE_PORT=5223' \
+    'FORWARD_DB_PORT=3356' \
+    'FORWARD_REDIS_PORT=6429' \
+    > "$repo/.worktrees/.state/registered-orphan.env"
+rm -rf "$repo/.worktrees/registered-orphan"
+assert_status 0 run_command prune
+if [ -f "$repo/.worktrees/.state/registered-orphan.env" ]; then
+    printf 'ok - prune preserves state still listed by Git\n'
+else
+    printf 'not ok - prune removed state still listed by Git\n'
+    failures=$((failures + 1))
+fi
+git -C "$repo" worktree prune
+rm -f "$repo/.worktrees/.state/registered-orphan.env"
+
 assert_failure_contains 'Verwendung:' run_command create feature-z --fresh
 assert_failure_contains 'Verwendung:' run_command status feature-y --all
 

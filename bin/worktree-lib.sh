@@ -615,14 +615,20 @@ prune_worktree_state() {
     local name
     local path
     local state_file
-    local state_dir
-    state_dir=$(worktree_state_dir)
+    local listing_status
     for name in $(list_worktree_state_names); do
         state_file=$(worktree_state_path "$name") || continue
         path=$(worktree_path "$name")
-        if [ ! -d "$path" ] || ! worktree_is_listed_by_git "$path"; then
-            rm -f "$state_file"
-            printf 'pruned: %s\n' "$name"
+        if [ ! -d "$path" ] || ! run_git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            if worktree_is_listed_by_git "$path"; then
+                continue
+            else
+                listing_status=$?
+            fi
+            if [ "$listing_status" -eq 1 ]; then
+                rm -f "$state_file"
+                printf 'pruned: %s\n' "$name"
+            fi
         fi
     done
 }
