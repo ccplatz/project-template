@@ -74,6 +74,7 @@ fi
 real_manifest_version=0
 real_manifest_changelog=0
 real_manifest_sync_docs=0
+real_manifest_worktree_docs=0
 real_manifest_project_config=0
 real_manifest_readme=0
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
@@ -86,6 +87,9 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     fi
     if [ "$path" = docs/template-sync.md ]; then
         [ "$strategy" = template-owned ] && real_manifest_sync_docs=1
+    fi
+    if [ "$path" = docs/worktree.md ]; then
+        [ "$strategy" = template-owned ] && real_manifest_worktree_docs=1
     fi
     if [ "$path" = .template/project.conf ]; then
         [ "$strategy" = project-config ] && real_manifest_project_config=1
@@ -103,6 +107,8 @@ assert_eq 1 "$real_manifest_version" 'real manifest includes VERSION'
 assert_eq 1 "$real_manifest_changelog" 'real manifest includes template-owned CHANGELOG.md'
 assert_eq 1 "$real_manifest_sync_docs" \
     'real manifest includes template-owned docs/template-sync.md'
+assert_eq 1 "$real_manifest_worktree_docs" \
+    'real manifest includes template-owned docs/worktree.md'
 assert_eq 1 "$real_manifest_project_config" \
     'real manifest includes project-config .template/project.conf'
 assert_eq 1 "$real_manifest_readme" \
@@ -111,6 +117,14 @@ assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.1.1]' \
     'changelog records the initial release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" 'template-owned' \
     'sync documentation defines template ownership'
+assert_file_contains "$script_dir/../../docs/worktree.md" 'status --all' \
+    'worktree documentation defines status-all inspection'
+assert_file_contains "$script_dir/../../docs/worktree.md" '.worktrees/.state' \
+    'worktree documentation defines persisted state'
+assert_file_contains "$script_dir/../../docs/worktree.md" 'APP_PORT' \
+    'worktree documentation defines the managed HTTP port'
+assert_file_contains "$script_dir/../../docs/worktree.md" 'http://127.0.0.1:<APP_PORT>' \
+    'worktree documentation defines the canonical URL'
 assert_file_contains "$script_dir/../../docs/template-sync.md" '.template/template.lock' \
     'sync documentation defines the lock file'
 assert_file_contains "$script_dir/../../docs/template-sync.md" \
