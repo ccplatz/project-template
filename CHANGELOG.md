@@ -2,6 +2,32 @@
 
 All notable changes to this template are documented here.
 
+## [0.3.0] - 2026-08-09
+
+### Added
+
+- Resumable `bin/worktree bootstrap <name>` with artifact-aware Composer, npm,
+  and application-key setup.
+- Compose preflight discovery for `compose.yaml`, `compose.yml`,
+  `docker-compose.yml`, and `docker-compose.yaml`.
+
+### Changed
+
+- Failed dependency and key-generation steps leave the target stack running for
+  retry, while failed target startup cleans only that target project.
+- `start`, `switch`, `status`, and `stop` recover safely when a target has
+  incomplete Sail artifacts by using the main checkout Sail fallback where
+  appropriate.
+
+### Migration
+
+- Synchronize each consumer separately with `bin/template-sync`, update its
+  Compose mappings for `APP_PORT`, `VITE_PORT`, `FORWARD_DB_PORT`, and
+  `FORWARD_REDIS_PORT`, then stop legacy containers before the first new state
+  allocation.
+- Retry incomplete consumer bootstraps with `bin/worktree bootstrap <name>`;
+  valid dependency artifacts are preserved and reused.
+
 ## [0.2.0] - 2026-08-08
 
 ### Added

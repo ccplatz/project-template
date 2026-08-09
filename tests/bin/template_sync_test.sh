@@ -130,9 +130,9 @@ assert_file_contains "$script_dir/../../AGENTS.md" \
     'agent guide documents parallel worktree stacks'
 assert_file_contains "$script_dir/../../AGENTS.md" \
     'switch' 'agent guide documents non-destructive switching'
-assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.2.0]' \
+assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.3.0]' \
     'changelog records the parallel stack release'
-assert_eq '0.2.0' "$(<"$script_dir/../../VERSION")" \
+assert_eq '0.3.0' "$(<"$script_dir/../../VERSION")" \
     'VERSION records the parallel stack release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" '.template/template.lock' \
     'sync documentation defines the lock file'
