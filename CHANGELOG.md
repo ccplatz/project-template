@@ -2,6 +2,18 @@
 
 All notable changes to this template are documented here.
 
+## [0.3.1] - 2026-08-10
+
+### Fixed
+
+- Synchronize Worktree Compose project and port values into the target `.env`
+  before Sail loads it.
+
+### Added
+
+- Add `bin/template-release-check` to detect template changes without a matching
+  version and changelog update.
+
 ## [0.3.0] - 2026-08-09
 
 ### Added

@@ -1,0 +1,81 @@
+#!/bin/bash
+
+set -euo pipefail
+
+die() {
+    printf '%s\n' "$1" >&2
+    exit 1
+}
+
+if [ "$#" -gt 1 ]; then
+    die 'Verwendung: bin/template-release-check [template-root]'
+fi
+
+if [ "$#" -eq 1 ]; then
+    root=$(cd "$1" 2>/dev/null && pwd -P) || die "Template-Root fehlt: $1"
+else
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || \
+        die 'Aktuelles Verzeichnis ist kein Git-Repository.'
+fi
+
+version_file="$root/VERSION"
+changelog_file="$root/CHANGELOG.md"
+manifest_file="$root/template-manifest.tsv"
+
+[ -f "$version_file" ] || die "VERSION fehlt: $version_file"
+[ -f "$changelog_file" ] || die "CHANGELOG.md fehlt: $changelog_file"
+[ -f "$manifest_file" ] || die "Manifest fehlt: $manifest_file"
+
+version=$(<"$version_file")
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+    die "VERSION muss major.minor.patch entsprechen: $version"
+
+changelog_version=$(awk '
+    match($0, /^## \[([0-9]+\.[0-9]+\.[0-9]+)\]/, match_data) {
+        print match_data[1]
+        exit
+    }
+' "$changelog_file")
+[ "$changelog_version" = "$version" ] || \
+    die "CHANGELOG-Version $changelog_version stimmt nicht mit VERSION $version überein."
+
+version_commit=$(git -C "$root" log -1 --format=%H -- VERSION 2>/dev/null) || true
+[ -n "$version_commit" ] || die 'VERSION ist noch nicht in Git versioniert.'
+
+changed_paths=$(
+    {
+        git -C "$root" diff --name-only "$version_commit..HEAD" --
+        git -C "$root" diff --name-only HEAD --
+        git -C "$root" ls-files --others --exclude-standard
+    } | sort -u
+)
+version_changed=0
+changelog_changed=0
+template_change=
+
+while IFS= read -r changed_path; do
+    [ -n "$changed_path" ] || continue
+    case "$changed_path" in
+        VERSION) version_changed=1; continue ;;
+        CHANGELOG.md) changelog_changed=1; continue ;;
+    esac
+
+    while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
+        [ "$path" = "$changed_path" ] || continue
+        if [ "$strategy" = template-owned ]; then
+            template_change=$changed_path
+        fi
+        break
+    done < "$manifest_file"
+
+done <<< "$changed_paths"
+
+if [ -n "$template_change" ] && { [ "$version_changed" -ne 1 ] || [ "$changelog_changed" -ne 1 ]; }; then
+    die "Release-Version fehlt: $template_change wurde seit der letzten VERSION-Änderung geändert."
+fi
+
+if [ "$version_changed" -ne "$changelog_changed" ]; then
+    die 'VERSION und CHANGELOG.md müssen gemeinsam geändert werden.'
+fi
+
+printf 'Template-Release %s ist konsistent.\n' "$version"

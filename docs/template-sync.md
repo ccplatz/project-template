@@ -93,8 +93,8 @@ conflicts remain non-overwritable.
 A release follows this order:
 
 1. Change the template and update `CHANGELOG.md`.
-2. Run the complete test and static-check commands.
-3. Bump `VERSION` to the next semantic version.
+2. Bump `VERSION` to the next semantic version.
+3. Run `bin/template-release-check` and the complete test and static-check commands.
 4. Commit the release and create an annotated tag.
 5. Synchronize consumer projects and review their conflicts.
 
@@ -103,8 +103,10 @@ For example:
 ```sh
 ./tests/bin/project_config_test.sh
 ./tests/bin/template_sync_test.sh
+./tests/bin/template_release_test.sh
 ./tests/bin/container_test.sh
 ./tests/bin/worktree_test.sh
+./bin/template-release-check
 shellcheck bin/container bin/container-lib.sh bin/project-config.sh \
   bin/template-sync bin/worktree bin/worktree-lib.sh tests/bin/*.sh
 printf '1.1.0\n' > VERSION

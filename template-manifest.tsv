@@ -1,6 +1,7 @@
 # strategy	path
 template-owned	template-manifest.tsv
 template-owned	bin/template-sync
+template-owned	bin/template-release-check
 template-owned	bin/project-config.sh
 template-owned	bin/container
 template-owned	bin/container-lib.sh
@@ -10,6 +11,7 @@ template-owned	bin/worktree-lib.sh
 template-owned	tests/bin/container_test.sh
 template-owned	tests/bin/project_config_test.sh
 template-owned	tests/bin/template_sync_test.sh
+template-owned	tests/bin/template_release_test.sh
 template-owned	tests/bin/worktree_test.sh
 template-owned	.opencode/plugins/guardrails.ts
 template-owned	.editorconfig

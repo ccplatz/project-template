@@ -71,6 +71,15 @@ if [ ! -x "$sync_script" ] || [ ! -f "$manifest" ]; then
     exit 1
 fi
 
+if release_output=$("$script_dir/../../bin/template-release-check" 2>&1); then
+    release_status=0
+else
+    release_status=$?
+fi
+assert_eq 0 "$release_status" 'template release metadata is consistent'
+assert_contains 'Template-Release' "$release_output" \
+    'template release check reports the current release'
+
 real_manifest_version=0
 real_manifest_changelog=0
 real_manifest_sync_docs=0
@@ -132,8 +141,8 @@ assert_file_contains "$script_dir/../../AGENTS.md" \
     'switch' 'agent guide documents non-destructive switching'
 assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.3.0]' \
     'changelog records the parallel stack release'
-assert_eq '0.3.0' "$(<"$script_dir/../../VERSION")" \
-    'VERSION records the parallel stack release'
+assert_eq '0.3.1' "$(<"$script_dir/../../VERSION")" \
+    'VERSION records the worktree environment release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" '.template/template.lock' \
     'sync documentation defines the lock file'
 assert_file_contains "$script_dir/../../docs/template-sync.md" \
@@ -143,6 +152,9 @@ assert_file_contains "$script_dir/../../docs/template-sync.md" '--dry-run' \
     'sync documentation defines dry-run behavior'
 assert_file_contains "$script_dir/../../docs/template-sync.md" 'major-version' \
     'sync documentation defines major-version migrations'
+assert_file_contains "$script_dir/../../docs/template-sync.md" \
+    'bin/template-release-check' \
+    'sync documentation requires release consistency checks'
 assert_file_order "$script_dir/../../docs/template-sync.md" \
     'finance migration bootstraps project configuration before sync' \
     'For `finance`:' \
