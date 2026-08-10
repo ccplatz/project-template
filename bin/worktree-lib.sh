@@ -183,6 +183,44 @@ load_worktree_state() {
         WORKTREE_STATE_VITE_PORT WORKTREE_STATE_DB_PORT WORKTREE_STATE_REDIS_PORT
 }
 
+sync_worktree_env_value() {
+    local file=$1
+    local key=$2
+    local value=$3
+    local temporary_file
+
+    [ -f "$file" ] || return 1
+    temporary_file="$file.tmp.$$"
+    awk -v key="$key" -v value="$value" '
+        BEGIN { prefix = key "="; updated = 0 }
+        index($0, prefix) == 1 {
+            if (!updated) {
+                print prefix value
+                updated = 1
+            }
+            next
+        }
+        { print }
+        END {
+            if (!updated) {
+                print prefix value
+            }
+        }
+    ' "$file" > "$temporary_file" && mv "$temporary_file" "$file"
+}
+
+sync_worktree_env() {
+    local path=$1
+
+    sync_worktree_env_value "$path/.env" COMPOSE_PROJECT_NAME \
+        "$WORKTREE_STATE_COMPOSE_PROJECT_NAME" || return 1
+    sync_worktree_env_value "$path/.env" APP_PORT "$WORKTREE_STATE_APP_PORT" || return 1
+    sync_worktree_env_value "$path/.env" VITE_PORT "$WORKTREE_STATE_VITE_PORT" || return 1
+    sync_worktree_env_value "$path/.env" FORWARD_DB_PORT "$WORKTREE_STATE_DB_PORT" || return 1
+    sync_worktree_env_value "$path/.env" FORWARD_REDIS_PORT \
+        "$WORKTREE_STATE_REDIS_PORT" || return 1
+}
+
 worktree_state_lock_dir() {
     printf '%s/.allocation-lock\n' "$(worktree_state_dir)"
 }
@@ -277,6 +315,7 @@ ensure_worktree_state() {
 
     if [ -f "$state_file" ]; then
         load_worktree_state "$name" || return 1
+        sync_worktree_env "$path" || return 1
         return 0
     fi
 
@@ -330,6 +369,7 @@ ensure_worktree_state() {
     release_worktree_state_lock
     trap - EXIT
     load_worktree_state "$name" || return 1
+    sync_worktree_env "$path"
 }
 
 validate_worktree_name() {
@@ -359,6 +399,7 @@ run_worktree_sail() {
     shift 6
 
     load_worktree_state "$name" || return 1
+    sync_worktree_env "$path" || return 1
     (
         cd "$path" || exit 1
         COMPOSE_PROJECT_NAME="$WORKTREE_STATE_COMPOSE_PROJECT_NAME" \
@@ -411,6 +452,7 @@ stack_is_running_for_worktree() {
     local mysql_init_script=
 
     load_worktree_state "$name" || return 1
+    sync_worktree_env "$path" || return 1
     if [ ! -d "$path/vendor/laravel/sail" ] || [ ! -x "$path/vendor/bin/sail" ]; then
         sail_bin="$worktree_root/vendor/bin/sail"
         mysql_init_script="$worktree_root/vendor/laravel/sail/database/mysql/create-testing-database.sh"

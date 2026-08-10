@@ -310,6 +310,10 @@ export STACK_STATE_DIR="$stack_state_dir"
 run_sail_calls_log="$repo/run-sail-calls"
 : > "$run_sail_calls_log"
 run_sail() {
+    if [ -n "${SOURCE_SAIL_ENV:-}" ]; then
+        # Mirror Sail loading the target .env after receiving environment values.
+        source "$SOURCE_SAIL_ENV"
+    fi
     printf 'x\n' >> "$run_sail_calls_log"
     printf 'PWD=%s COMPOSE_PROJECT_NAME=%s SAIL_SOURCE_PATH=%s SAIL_BIN=%s SAIL_BUILD_CONTEXT=%s SAIL_BUILD_DOCKERFILE=%s SAIL_MYSQL_INIT_SCRIPT=%s ARGS=%s PROJECT=%s APP=%s VITE=%s DB=%s REDIS=%s\n' \
         "$PWD" "${COMPOSE_PROJECT_NAME:-}" "${SAIL_SOURCE_PATH:-}" \
@@ -334,7 +338,13 @@ run_sail() {
 
 mkdir -p "$repo/bin"
 git -C "$repo" worktree add -q -b feature-y "$repo/.worktrees/feature-y"
-printf 'APP_KEY=base64:feature-y\n' > "$repo/.worktrees/feature-y/.env"
+printf '%s\n' \
+    'COMPOSE_PROJECT_NAME=finance' \
+    'APP_PORT=8080' \
+    'VITE_PORT=5173' \
+    'FORWARD_DB_PORT=3306' \
+    'FORWARD_REDIS_PORT=6379' \
+    'APP_KEY=base64:feature-y' > "$repo/.worktrees/feature-y/.env"
 cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
 
 busy_ports="$repo/busy-ports"
@@ -390,6 +400,14 @@ assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
 assert_status 0 start_for_worktree feature-y "$repo/.worktrees/feature-y"
 assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-x APP=8080 VITE=5173 DB=3306 REDIS=6379'
 assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-y APP=8100 VITE=5193 DB=3326 REDIS=6399'
+
+: > "$MOCK_SAIL_LOG"
+export SOURCE_SAIL_ENV=.env
+assert_status 0 run_worktree_sail feature-y "$repo/.worktrees/feature-y" \
+    "$repo/.worktrees/feature-y/vendor/bin/sail" '' '' '' up -d --remove-orphans
+unset SOURCE_SAIL_ENV
+assert_contains "$MOCK_SAIL_LOG" \
+    'PROJECT=test-project-feature-y APP=8100 VITE=5193 DB=3326 REDIS=6399'
 
 assert_status 0 stop_for_worktree feature-x "$repo/.worktrees/feature-x"
 assert_not_exists "$stack_state_dir/test-project-feature-x"
