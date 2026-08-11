@@ -43,6 +43,11 @@ COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan test # all PHP test
 COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail composer <script> # composer scripts
 ```
 
+The normal `bin/worktree start`, `switch`, `create`, and `bootstrap` commands
+start the consumer's `npm run dev` script automatically when the frontend
+artifacts are present. Run the Sail command manually only to restart or debug
+the frontend process.
+
 Multiple worktree stacks can run at the same time. Each stack uses an isolated
 Compose project and port group. `switch` is non-destructive: it selects and
 starts the target without stopping another running stack. The canonical URL is

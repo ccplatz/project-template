@@ -53,6 +53,11 @@ stacks. Composer, npm, and `APP_KEY` failures leave the target stack running;
 rerun `./bin/worktree bootstrap <name>` to retry, with already valid artifacts
 skipped.
 
+When `package.json`, `node_modules`, and an npm `dev` script are present,
+`start`, `switch`, `create`, and `bootstrap` also start `npm run dev` inside the
+existing `laravel.test` container. The process is detached and is stopped with
+the container. Worktrees without a frontend skip this step.
+
 An explicit `bootstrap <name>` does not change `.worktree-active`. `create`
 updates `.worktree-active` only after the complete bootstrap succeeds.
 

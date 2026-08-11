@@ -13,9 +13,11 @@ git -C "$repo" config user.email test@example.com
 git -C "$repo" config user.name 'Worktree Test'
 touch "$repo/README"
 printf 'APP_KEY=\n' > "$repo/.env.template"
+printf '%s\n' '{"scripts":{"dev":"vite"}}' > "$repo/package.json"
 printf 'services: {}\n' > "$repo/compose.yaml"
 git -C "$repo" add README
 git -C "$repo" add .env.template
+git -C "$repo" add package.json
 git -C "$repo" add compose.yaml
 git -C "$repo" commit -q -m initial
 git -C "$repo" checkout -q -b existing-source
@@ -395,11 +397,20 @@ assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-x APP=8080 VITE=5
 assert_contains "$MOCK_SAIL_LOG" 'ARGS=ps -q laravel.test'
 rm -f "$stack_state_dir/test-project-feature-x"
 
+printf '%s\n' '{"scripts":{"dev":"vite"}}' > "$repo/.worktrees/feature-x/package.json"
+mkdir -p "$repo/.worktrees/feature-x/node_modules"
 : > "$MOCK_SAIL_LOG"
 assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
 assert_status 0 start_for_worktree feature-y "$repo/.worktrees/feature-y"
 assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-x APP=8080 VITE=5173 DB=3306 REDIS=6379'
 assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-y APP=8100 VITE=5193 DB=3326 REDIS=6399'
+assert_contains "$MOCK_SAIL_LOG" 'ARGS=run sh -lc'
+assert_contains "$MOCK_SAIL_LOG" 'pid_file=/tmp/project-template-vite.pid'
+assert_contains "$MOCK_SAIL_LOG" 'npm run dev'
+
+: > "$MOCK_SAIL_LOG"
+assert_status 0 start_for_worktree feature-y "$repo/.worktrees/feature-y"
+assert_not_contains "$MOCK_SAIL_LOG" 'ARGS=run sh -lc'
 
 : > "$MOCK_SAIL_LOG"
 export SOURCE_SAIL_ENV=.env
@@ -750,6 +761,7 @@ assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$re
 assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=composer install"
 assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/.worktrees/feature-z-unique/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE=Dockerfile MYSQL_INIT= ARGS=npm install"
 assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/.worktrees/feature-z-unique/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE=Dockerfile MYSQL_INIT= ARGS=artisan key:generate"
+assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/.worktrees/feature-z-unique/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE= MYSQL_INIT= ARGS=run sh -lc"
 assert_not_contains "$command_log" 'migrate:fresh'
 assert_eq feature-z-unique "$(<"$repo/.worktree-active")" \
     'successful create writes active state'
@@ -757,7 +769,9 @@ up_line=$(awk '/ARGS=up -d --remove-orphans/ { print NR; exit }' "$command_log")
 composer_line=$(awk '/ARGS=composer install/ { print NR; exit }' "$command_log")
 npm_line=$(awk '/ARGS=npm install/ { print NR; exit }' "$command_log")
 key_line=$(awk '/ARGS=artisan key:generate/ { print NR; exit }' "$command_log")
-if [ "$up_line" -lt "$composer_line" ] && [ "$composer_line" -lt "$npm_line" ] && [ "$npm_line" -lt "$key_line" ]; then
+frontend_line=$(awk '/ARGS=run sh -lc/ { print NR; exit }' "$command_log")
+if [ "$up_line" -lt "$composer_line" ] && [ "$composer_line" -lt "$npm_line" ] \
+    && [ "$npm_line" -lt "$key_line" ] && [ "$key_line" -lt "$frontend_line" ]; then
     printf 'ok - create bootstrap steps run in order\n'
 else
     printf 'not ok - create bootstrap steps run in order\n'

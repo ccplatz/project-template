@@ -127,6 +127,7 @@ bootstrap_worktree() {
         run_create_step 'Anwendungsschlüssel erzeugen' run_bootstrap_command "$name" "$target" '' \
             "$target_sail" '' artisan key:generate || return 1
     fi
+    start_frontend "$name" "$target" "$target_sail" '' || return 1
 }
 
 create_worktree() {

@@ -2,6 +2,13 @@
 
 All notable changes to this template are documented here.
 
+## [0.3.2] - 2026-08-11
+
+### Added
+
+- Start a consumer's `npm run dev` frontend automatically with the Worktree
+  stack when frontend artifacts and a `dev` script are available.
+
 ## [0.3.1] - 2026-08-10
 
 ### Fixed

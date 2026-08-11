@@ -553,6 +553,40 @@ npm_artifacts_valid() {
     [ -d "$path/node_modules" ]
 }
 
+start_frontend() {
+    local name=$1
+    local path=$2
+    local sail_bin=$3
+    local mysql_init_script=${4:-}
+    local frontend_command
+
+    if [ ! -f "$path/package.json" ] || [ ! -d "$path/node_modules" ]; then
+        return 0
+    fi
+
+    frontend_command='set -eu
+pid_file=/tmp/project-template-vite.pid
+if ! node -e '\''const packageJson = require("./package.json"); process.exit(packageJson.scripts && packageJson.scripts.dev ? 0 : 1)'\'' 2>/dev/null; then
+    exit 0
+fi
+if [ -f "$pid_file" ]; then
+    existing_pid=
+    IFS= read -r existing_pid < "$pid_file" || true
+    if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+        exit 0
+    fi
+fi
+rm -f "$pid_file"
+nohup npm run dev > /tmp/project-template-vite.log 2>&1 < /dev/null &
+frontend_pid=$!
+printf "%s\\n" "$frontend_pid" > "$pid_file"
+sleep 1
+kill -0 "$frontend_pid" 2>/dev/null'
+
+    run_worktree_sail "$name" "$path" "$sail_bin" "$mysql_init_script" \
+        '' '' run sh -lc "$frontend_command"
+}
+
 application_key_is_set() {
     local path=$1
     grep -Eq '^APP_KEY=.+$' "$path/.env" 2>/dev/null
@@ -609,10 +643,11 @@ start_for_worktree() {
     [ -x "$sail_bin" ] || die "Sail fehlt in $path/vendor/bin/sail" || return 1
     if [ -n "$build_context" ]; then
         run_worktree_sail "$name" "$path" "$sail_bin" "$mysql_init_script" \
-            "$build_context" "$build_dockerfile" up -d --remove-orphans
+            "$build_context" "$build_dockerfile" up -d --remove-orphans || return 1
     else
-        start_stack "$name" "$path" "$sail_bin"
+        start_stack "$name" "$path" "$sail_bin" || return 1
     fi
+    start_frontend "$name" "$path" "$sail_bin" "$mysql_init_script" || return 1
 }
 
 cleanup_failed_target_start() {
