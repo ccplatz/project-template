@@ -164,7 +164,14 @@ instructions automatically. Copy the files to your project, then use a prompt li
 > what actually exists in the code — do not invent or assume conventions.
 > Delete any instruction files that don't apply to this project.
 
-### 5. Initialize the repository
+### 5. Create the consumer adapter
+
+Every worktree must provide an executable `bin/consumer` adapter that owns the
+project runtime (bootstrap, start, stop). Use the `consumer-runtime-adapter`
+skill (`.opencode/skills/consumer-runtime-adapter/SKILL.md`) and
+`docs/runtime-hooks.md` to build it; see the Consumer adapter section above.
+
+### 6. Initialize the repository
 
 ```sh
 git init
@@ -172,7 +179,7 @@ git add -A
 git commit -m "Initial commit from project-template"
 ```
 
-### 6. Run the tests
+### 7. Run the tests
 
 ```sh
 ./tests/bin/project_config_test.sh
