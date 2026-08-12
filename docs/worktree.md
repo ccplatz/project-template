@@ -1,8 +1,8 @@
-# Parallel Worktree Stacks
+# Parallel Worktrees
 
-The Worktree helper gives every named Worktree its own Docker Compose project. A
-unique project name keeps containers, networks, and volumes isolated, while a
-reserved port group keeps host access isolated as well.
+The Worktree helper gives every named Worktree an isolated state record and a
+reserved group of host ports. Project-specific lifecycle behavior belongs to
+the executable `bin/consumer` adapter in each Worktree.
 
 ## Commands
 
@@ -14,76 +14,40 @@ reserved port group keeps host access isolated as well.
 ./bin/worktree switch <name> [--fresh]
 ./bin/worktree status [<name>]
 ./bin/worktree status --all
+./bin/worktree reset [<name>]
 ./bin/worktree prune
 ```
 
-`switch` selects and starts its target without stopping any other running
-Worktree stack. The `.worktree-active` file is only a convenience pointer for
-commands without an explicit name; it is never used to choose an unrelated
-stack to stop.
+`--fresh` is a deprecated alias for the reset operation on `start` and
+`switch`. Explicit names always address only the requested Worktree. Commands
+without a name use `.worktree-active`; `switch` starts its target without
+stopping any other Worktree.
 
-## Bootstrap
+## Consumer Hooks
 
-`bootstrap <name>` is a resumable, safe operation. It skips valid artifacts and
-can be rerun with the same command after a failed dependency or key step. Its
-sequence is:
+`bootstrap`, `start`, `stop`, `status`, and `reset` dispatch to the target's
+`bin/consumer` executable. The adapter receives one positional argument, the
+hook name, and receives the generic `WORKTREE_*` context through its
+environment. See [runtime-hooks.md](runtime-hooks.md) for the hook contract.
 
-1. Create `.env` from `.env.template` when `.env` is missing.
-2. Validate a supported Compose filename before starting anything.
-3. Load the existing Worktree state or allocate it when it does not exist.
-4. Start only the target stack.
-5. Install Composer dependencies when valid Composer/Sail artifacts are absent.
-6. Verify the target Sail executable.
-7. Install npm dependencies when `node_modules` is absent.
-8. Generate `APP_KEY` only when it is empty.
-
-The supported Compose filenames are exactly:
-
-```text
-compose.yaml
-compose.yml
-docker-compose.yml
-docker-compose.yaml
-```
-
-Bootstrap does not generate or symlink a Compose file. A missing supported
-Compose file fails during preflight, before `up` runs. If starting the target
-fails, cleanup stops only that target stack and does not affect other running
-stacks. Composer, npm, and `APP_KEY` failures leave the target stack running;
-rerun `./bin/worktree bootstrap <name>` to retry, with already valid artifacts
-skipped.
-
-When `package.json`, `node_modules`, and an npm `dev` script are present,
-`start`, `switch`, `create`, and `bootstrap` also start `npm run dev` inside the
-existing `laravel.test` container. The process is detached and is stopped with
-the container. Worktrees without a frontend skip this step.
-
-An explicit `bootstrap <name>` does not change `.worktree-active`. `create`
-updates `.worktree-active` only after the complete bootstrap succeeds.
+An explicit `bootstrap` does not change `.worktree-active`. `create` updates the
+active pointer only after the target has bootstrapped successfully. A failed
+target operation leaves the active pointer unchanged.
 
 ## State And Ports
 
 The selected Worktree state is persisted in
-`.worktrees/.state/<name>.env`. It records the Worktree name, the Compose
-project name `<PROJECT_NAME>-<name>`, and the managed `APP_PORT`, `VITE_PORT`,
-`FORWARD_DB_PORT`, and `FORWARD_REDIS_PORT` values. State files are local
-metadata and must not be committed.
+`.worktrees/.state/<name>.env`. It records the Worktree name, an isolated
+instance name, and the configured generic port profiles. State files are local
+metadata and must not be committed. The source configuration uses
+`WORKTREE_PORT_PROFILE` and `WORKTREE_PORT_STRIDE` to define those profiles.
 
-For group index `n`, ports are allocated as follows:
+For group index `n`, each configured port uses its profile base plus
+`n * WORKTREE_PORT_STRIDE`. The allocator checks persisted reservations and
+host availability while holding an atomic PID lock. A live lock is rejected; a
+stale lock left by a crashed allocator is removed and recovered.
 
-```text
-APP_PORT            = 8080 + (n * 10)
-VITE_PORT           = 5173 + (n * 10)
-FORWARD_DB_PORT     = 3306 + (n * 10)
-FORWARD_REDIS_PORT  = 6379 + (n * 10)
-```
-
-The allocator checks persisted reservations and host availability while holding
-an atomic PID lock. A live lock is rejected; a stale lock left by a crashed
-allocator is removed and recovered. The canonical HTTP URL is
-`http://127.0.0.1:<APP_PORT>`. Port 80 is never an implicit Worktree fallback.
-
-## Running Multiple Stacks
+## Running Multiple Worktrees
 
 Start each named Worktree independently and inspect all assignments with
 `status --all`:
@@ -96,20 +60,9 @@ Start each named Worktree independently and inspect all assignments with
 ./bin/worktree prune
 ```
 
-`status` reports the Compose project, URL, managed ports, and whether the stack
-is running. A valid Worktree without state is reported as `unconfigured`.
-Stale active state is diagnosed instead of selecting another Worktree. `prune`
-removes only state files whose Worktree is no longer registered with Git; it
-does not stop containers, remove Worktrees, or prune Docker resources.
-
-## Compose Contract
-
-Named Sail operations explicitly pass `COMPOSE_PROJECT_NAME`, `APP_PORT`,
-`VITE_PORT`, `FORWARD_DB_PORT`, and `FORWARD_REDIS_PORT`. Consumer-owned Compose
-files must map these variables to their service and host-port definitions.
-Root ownership, `user:` mappings, extra forwarded ports, and Playwright URLs
-remain consumer-owned and are not changed by the template Worktree helper.
-
-Stop legacy stacks using the old shared Compose project name before the first
-state allocation. Then use `status --all` to verify the new project and port
-assignments.
+`status` always reports generic Worktree metadata and appends the consumer's
+status output when state is configured. It does not infer generic state from
+consumer output. A valid Worktree without state is reported as `unconfigured`.
+Stale active state is diagnosed instead of selecting another Worktree.
+`prune` removes only state files whose Worktree is no longer registered with
+Git.

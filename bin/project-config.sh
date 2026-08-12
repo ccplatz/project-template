@@ -6,7 +6,7 @@ load_project_config() {
     local config_file="$project_root/.template/project.conf"
 
     PROJECT_CONFIG_LOADED=0
-    unset PROJECT_NAME
+    unset PROJECT_NAME WORKTREE_PORT_PROFILE WORKTREE_PORT_STRIDE WORKTREE_ENV_TEMPLATE
 
     if [ ! -f "$config_file" ]; then
         printf 'Projektkonfiguration fehlt: %s\n' "$config_file" >&2
@@ -28,7 +28,96 @@ load_project_config() {
             ;;
     esac
 
+    local configured_profile=${WORKTREE_PORT_PROFILE-}
+    local configured_stride=${WORKTREE_PORT_STRIDE-10}
+    local configured_env_template=${WORKTREE_ENV_TEMPLATE-.env.template}
+    local profile_entry profile_name profile_base remaining last_entry
+    local seen_names='|'
+
+    if [ -n "$configured_profile" ]; then
+        remaining=$configured_profile
+        while :; do
+            last_entry=0
+            case "$remaining" in
+                *,*)
+                    profile_entry=${remaining%%,*}
+                    remaining=${remaining#*,}
+                    ;;
+                *)
+                    profile_entry=$remaining
+                    remaining=
+                    last_entry=1
+                    ;;
+            esac
+
+            case "$profile_entry" in
+                ''|*'=')
+                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    return 1
+                    ;;
+                *=*)
+                    profile_name=${profile_entry%%=*}
+                    profile_base=${profile_entry#*=}
+                    ;;
+                *)
+                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    return 1
+                    ;;
+            esac
+
+            case "$profile_name" in
+                ''|*[!a-z0-9_]*)
+                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    return 1
+                    ;;
+            esac
+
+            case "$profile_base" in
+                ''|*[!0-9]*)
+                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    return 1
+                    ;;
+                [1-9]*)
+                    if [ "${#profile_base}" -gt 5 ] || [ "$profile_base" -gt 65535 ]; then
+                        printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                        return 1
+                    fi
+                    ;;
+                *)
+                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    return 1
+                    ;;
+            esac
+
+            case "$seen_names" in
+                *"|${profile_name}|"*)
+                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    return 1
+                    ;;
+            esac
+            seen_names=$seen_names$profile_name'|'
+
+            [ "$last_entry" -eq 1 ] && break
+        done
+    fi
+
+    case "$configured_stride" in
+        ''|*[!0-9]*)
+            printf 'Ungültiger WORKTREE_PORT_STRIDE in %s.\n' "$config_file" >&2
+            return 1
+            ;;
+        [1-9]*) ;;
+        *)
+            printf 'Ungültiger WORKTREE_PORT_STRIDE in %s.\n' "$config_file" >&2
+            return 1
+            ;;
+    esac
+
+    WORKTREE_PORT_PROFILE=$configured_profile
+    WORKTREE_PORT_STRIDE=$configured_stride
+    WORKTREE_ENV_TEMPLATE=$configured_env_template
     export PROJECT_NAME
+    export WORKTREE_PORT_PROFILE WORKTREE_PORT_STRIDE WORKTREE_ENV_TEMPLATE
     PROJECT_CONFIG_LOADED=1
 }
 

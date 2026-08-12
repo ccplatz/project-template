@@ -23,37 +23,47 @@ Use the read tool – only read a file when you absolutely need it.
 ## Running commands
 
 **Normal development entry point:** use `./bin/worktree start <name>` (or
-`./bin/worktree create <name>` for a new worktree). Direct `./vendor/bin/sail`
-startup is a raw-Sail reference for an already active worktree, not the normal
-development entry point. All PHP, Composer, NPM, and Artisan commands still run
-through `./vendor/bin/sail`; never invoke them directly on the host.
+`./bin/worktree create <name>` for a new worktree). The Worktree helper is a
+stack-independent Orchestrator: it dispatches every lifecycle hook to the
+consumer-owned `bin/consumer` adapter in the target worktree and never invokes
+a framework command itself.
 
 ```sh
-./bin/worktree start <name>                  # start one named stack
-./bin/worktree start <name> --fresh          # start + migrate:fresh --seed
 ./bin/worktree create <name>                 # new worktree + bootstrap from main
-./bin/worktree create <name> --existing      # worktree for existing branch
+./bin/worktree start <name>                  # start one named worktree
+./bin/worktree start <name> --fresh          # start + reset the target
 ./bin/worktree switch <name>                 # select/start target, keep other stacks
-./bin/worktree switch <name> --fresh         # switch + migrate:fresh --seed
-./bin/worktree stop <name>                   # stop only the named stack
+./bin/worktree switch <name> --fresh         # switch + reset the target
+./bin/worktree stop <name>                   # stop only the named worktree
+./bin/worktree bootstrap <name>              # run the consumer bootstrap hook
+./bin/worktree reset <name>                  # reset the named worktree
 ./bin/worktree status --all                  # show all stack states and ports
-COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run dev # Vite HMR
-COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan <cmd> # any artisan command
-COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan test # all PHP tests
-COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail composer <script> # composer scripts
 ```
 
-The normal `bin/worktree start`, `switch`, `create`, and `bootstrap` commands
-start the consumer's `npm run dev` script automatically when the frontend
-artifacts are present. Run the Sail command manually only to restart or debug
-the frontend process.
+Each worktree provides its own executable `bin/consumer` adapter that owns the
+project runtime (for example Laravel Sail or Compose). The adapter receives the
+generic context through exported `WORKTREE_*` variables — `WORKTREE_NAME`,
+`WORKTREE_INSTANCE_NAME`, `WORKTREE_PATH`, `WORKTREE_ROOT`,
+`WORKTREE_STATE_FILE`, `WORKTREE_ENV_FILE`, and one `WORKTREE_PORT_<PROFILE>` per
+configured port profile entry. See `docs/runtime-hooks.md` for the contract.
 
-Multiple worktree stacks can run at the same time. Each stack uses an isolated
-Compose project and port group. `switch` is non-destructive: it selects and
-starts the target without stopping another running stack. The canonical URL is
-`http://127.0.0.1:<APP_PORT>`; use `status --all` to inspect assignments.
+The `bin/worktree start`, `switch`, `create`, and `bootstrap` commands dispatch
+to the target's consumer adapter. Run framework commands (`sail`, `composer`,
+`artisan`, `npm`, Vite, workers) only through the consumer adapter, never
+directly on the host and never through the Worktree helper.
+
+Multiple worktree stacks can run at the same time. Each worktree uses an
+isolated state record and a reserved group of generic host ports defined by
+`WORKTREE_PORT_PROFILE` in `.template/project.conf`. `switch` is
+non-destructive: it selects and starts the target without stopping another
+running worktree. Ports and the canonical URL are owned by the consumer
+adapter; use `status --all` to inspect assignments.
 
 ## Validation flow (run in order)
+
+All framework commands below are examples for a Laravel/Sail consumer and run
+through the consumer-owned `bin/consumer` adapter; the template never invokes
+them directly. Adjust them to your consumer's runtime.
 
 0. `./bin/guardrails-check` — automated code quality & security guardrails (see `.opencode/plugins/guardrails.ts`)
 1. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan test` — PHPUnit (feature + unit)

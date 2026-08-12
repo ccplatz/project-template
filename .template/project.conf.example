@@ -1,2 +1,7 @@
-# Project identifier used as the Docker Compose project name.
+# Generic project identifier.
 PROJECT_NAME=my-project
+
+# Comma-separated host ports required by one Worktree.
+WORKTREE_PORT_PROFILE="http=8080,frontend=5173,database=3306,cache=6379"
+WORKTREE_PORT_STRIDE=10
+WORKTREE_ENV_TEMPLATE=.env.template

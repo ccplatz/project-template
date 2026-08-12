@@ -104,10 +104,9 @@ For example:
 ./tests/bin/project_config_test.sh
 ./tests/bin/template_sync_test.sh
 ./tests/bin/template_release_test.sh
-./tests/bin/container_test.sh
 ./tests/bin/worktree_test.sh
 ./bin/template-release-check
-shellcheck bin/container bin/container-lib.sh bin/project-config.sh \
+shellcheck bin/project-config.sh \
   bin/template-sync bin/worktree bin/worktree-lib.sh tests/bin/*.sh
 printf '1.1.0\n' > VERSION
 git diff --check
@@ -201,9 +200,8 @@ sync implementation change:
 ```sh
 ./tests/bin/project_config_test.sh
 ./tests/bin/template_sync_test.sh
-./tests/bin/container_test.sh
 ./tests/bin/worktree_test.sh
-shellcheck bin/container bin/container-lib.sh bin/project-config.sh \
+shellcheck bin/project-config.sh \
   bin/template-sync bin/worktree bin/worktree-lib.sh tests/bin/*.sh
 git diff --check
 ```

@@ -86,6 +86,10 @@ real_manifest_sync_docs=0
 real_manifest_worktree_docs=0
 real_manifest_project_config=0
 real_manifest_readme=0
+real_manifest_runtime_hooks=0
+real_manifest_consumer_skill=0
+real_manifest_container=0
+real_manifest_container_lib=0
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     [[ -z "${strategy:-}" || "$strategy" == \#* ]] && continue
     if [ "$path" = VERSION ]; then
@@ -106,6 +110,18 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     if [ "$path" = README.md ]; then
         [ "$strategy" = project-owned ] && real_manifest_readme=1
     fi
+    if [ "$path" = docs/runtime-hooks.md ]; then
+        [ "$strategy" = template-owned ] && real_manifest_runtime_hooks=1
+    fi
+    if [ "$path" = .opencode/skills/consumer-runtime-adapter/SKILL.md ]; then
+        [ "$strategy" = template-owned ] && real_manifest_consumer_skill=1
+    fi
+    if [ "$path" = bin/container ] && [ "$strategy" = template-owned ]; then
+        real_manifest_container=1
+    fi
+    if [ "$path" = bin/container-lib.sh ] && [ "$strategy" = template-owned ]; then
+        real_manifest_container_lib=1
+    fi
     if [ "$strategy" = template-owned ] \
         && { [ ! -f "$script_dir/../../$path" ] || [ -L "$script_dir/../../$path" ]; }; then
         printf 'not ok - real manifest path exists: %s\n' "$path" >&2
@@ -122,6 +138,14 @@ assert_eq 1 "$real_manifest_project_config" \
     'real manifest includes project-config .template/project.conf'
 assert_eq 1 "$real_manifest_readme" \
     'real manifest keeps README.md project-owned'
+assert_eq 1 "$real_manifest_runtime_hooks" \
+    'real manifest includes template-owned docs/runtime-hooks.md'
+assert_eq 1 "$real_manifest_consumer_skill" \
+    'real manifest includes the consumer runtime adapter skill'
+assert_eq 0 "$real_manifest_container" \
+    'real manifest removes bin/container'
+assert_eq 0 "$real_manifest_container_lib" \
+    'real manifest removes bin/container-lib.sh'
 assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.1.1]' \
     'changelog records the initial release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" 'template-owned' \
@@ -130,10 +154,22 @@ assert_file_contains "$script_dir/../../docs/worktree.md" 'status --all' \
     'worktree documentation defines status-all inspection'
 assert_file_contains "$script_dir/../../docs/worktree.md" '.worktrees/.state' \
     'worktree documentation defines persisted state'
-assert_file_contains "$script_dir/../../docs/worktree.md" 'APP_PORT' \
-    'worktree documentation defines the managed HTTP port'
-assert_file_contains "$script_dir/../../docs/worktree.md" 'http://127.0.0.1:<APP_PORT>' \
-    'worktree documentation defines the canonical URL'
+assert_file_contains "$script_dir/../../docs/worktree.md" 'WORKTREE_PORT_PROFILE' \
+    'worktree documentation defines generic managed ports'
+assert_file_contains "$script_dir/../../docs/runtime-hooks.md" 'WORKTREE_PORT_<PROFILE>' \
+    'runtime hook documentation defines generic port context'
+for contract_file in README.md docs/runtime-hooks.md; do
+    assert_file_contains "$script_dir/../../$contract_file" 'bin/consumer' \
+        "$contract_file documents the consumer adapter"
+    assert_file_contains "$script_dir/../../$contract_file" 'WORKTREE_PORT_PROFILE' \
+        "$contract_file documents generic port profiles"
+    assert_file_contains "$script_dir/../../$contract_file" '.env.example' \
+        "$contract_file documents .env.example handling"
+    assert_file_contains "$script_dir/../../$contract_file" '.env.template' \
+        "$contract_file documents .env.template handling"
+    assert_file_contains "$script_dir/../../$contract_file" 'Orchestrator/Adapter boundary' \
+        "$contract_file documents the Orchestrator/Adapter boundary"
+done
 assert_file_contains "$script_dir/../../AGENTS.md" \
     'Multiple worktree stacks can run at the same time' \
     'agent guide documents parallel worktree stacks'
@@ -141,7 +177,7 @@ assert_file_contains "$script_dir/../../AGENTS.md" \
     'switch' 'agent guide documents non-destructive switching'
 assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.3.0]' \
     'changelog records the parallel stack release'
-assert_eq '0.3.2' "$(<"$script_dir/../../VERSION")" \
+assert_eq '0.4.0' "$(<"$script_dir/../../VERSION")" \
     'VERSION records the worktree environment release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" '.template/template.lock' \
     'sync documentation defines the lock file'

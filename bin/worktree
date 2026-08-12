@@ -18,24 +18,27 @@ Verwendung:
   bin/worktree switch <name> [--fresh]
   bin/worktree status [<name>]
   bin/worktree status --all
+  bin/worktree reset [<name>]
   bin/worktree prune
 
 Befehle:
   create <name>       Neuen Worktree anlegen und bootstrappen
     --existing        Branch <name> existiert bereits, nicht von main abzweigen
 
-  bootstrap <name>    Worktree-Abhängigkeiten installieren und vorbereiten
+  bootstrap <name>    Worktree über den Consumer vorbereiten
 
   start [<name>]      Benannten oder aktiven Worktree starten
-    --fresh           Datenbank nach dem Start zurücksetzen
+    --fresh           Veralteter Alias für reset
 
   stop [<name>]       Benannten oder aktiven Worktree stoppen
 
-  switch <name>       Worktree auswählen und starten, andere Stacks bleiben aktiv
-    --fresh           Datenbank zurücksetzen (migrate:fresh --seed)
+  switch <name>       Worktree auswählen und starten, andere Worktrees bleiben aktiv
+    --fresh           Veralteter Alias für reset
 
-  status [<name>]     Einen Worktree mit Projekt, URL, Ports und Status anzeigen
+  status [<name>]     Einen Worktree mit Instanz, Ports und Status anzeigen
     --all             Alle Worktrees und verwaiste Zustände anzeigen
+
+  reset [<name>]      Benannten oder aktiven Worktree zurücksetzen
 
   prune               Verwaiste Zustandsdateien entfernen
 
@@ -57,77 +60,10 @@ run_git() {
     git -C "$worktree_root" "$@"
 }
 
-command_failed() {
-    printf 'Fehler bei Schritt: %s\n' "$1" >&2
-    return 1
-}
-
-run_create_step() {
-    local label=$1
-    shift
-    if ! "$@"; then
-        command_failed "$label"
-    fi
-}
-
-run_bootstrap_command() {
-    local name=$1
-    local target=$2
-    local build_context=$3
-    local sail_bin=$4
-    local mysql_init_script=$5
-    local build_dockerfile=Dockerfile
-    shift 5
-
-    run_worktree_sail "$name" "$target" "$sail_bin" "$mysql_init_script" \
-        "$build_context" "$build_dockerfile" "$@"
-}
-
 bootstrap_worktree() {
     local name=$1
     local target=$2
-    local main_sail=$worktree_root/vendor/bin/sail
-    local build_context=$worktree_root/vendor/laravel/sail/runtimes/8.5
-    local mysql_init_script=$worktree_root/vendor/laravel/sail/database/mysql/create-testing-database.sh
-
-    if [ ! -f "$target/.env" ] && [ -f "$target/.env.template" ]; then
-        run_create_step 'env kopieren' cp "$target/.env.template" "$target/.env" || return 1
-    fi
-    validate_worktree_prerequisites "$target" || return 1
-    ensure_worktree_state "$name" "$target" || return 1
-    ensure_main_sail_setup || return 1
-
-    if ! run_create_step 'Stack starten' run_bootstrap_command "$name" "$target" "$build_context" \
-        "$main_sail" "$mysql_init_script" up -d --remove-orphans; then
-        cleanup_failed_target_start "$name" "$target" "$main_sail" "$mysql_init_script" || true
-        return 1
-    fi
-
-    if ! composer_artifacts_valid "$target"; then
-        run_create_step 'Composer-Abhängigkeiten installieren' run_bootstrap_command "$name" "$target" \
-            "$build_context" "$main_sail" "$mysql_init_script" composer install || return 1
-    fi
-    if ! composer_artifacts_valid "$target"; then
-        command_failed 'Sail nach Composer-Installation nicht gefunden'
-        return 1
-    fi
-
-    local target_sail=$target/vendor/bin/sail
-    if ! npm_artifacts_valid "$target" || ! application_key_is_set "$target"; then
-        if [ ! -x "$target_sail" ]; then
-            command_failed 'Sail nach Composer-Installation nicht gefunden'
-            return 1
-        fi
-    fi
-    if ! npm_artifacts_valid "$target"; then
-        run_create_step 'Node-Abhängigkeiten installieren' run_bootstrap_command "$name" "$target" '' \
-            "$target_sail" '' npm install || return 1
-    fi
-    if ! application_key_is_set "$target"; then
-        run_create_step 'Anwendungsschlüssel erzeugen' run_bootstrap_command "$name" "$target" '' \
-            "$target_sail" '' artisan key:generate || return 1
-    fi
-    start_frontend "$name" "$target" "$target_sail" '' || return 1
+    bootstrap_for_worktree "$name" "$target"
 }
 
 create_worktree() {
@@ -135,7 +71,6 @@ create_worktree() {
     local existing=${2:-0}
     local target
     validate_worktree_name "$name" || return 1
-    ensure_main_sail_setup || return 1
     target=$(worktree_path "$name")
 
     if [ -e "$target" ]; then
@@ -158,10 +93,16 @@ start_named() {
     local name=$1
     local fresh=${2:-0}
     local path
+    local reset_status
     path=$(resolve_worktree "$name") || return 1
     start_for_worktree "$name" "$path" || return 1
     if [ "$fresh" -eq 1 ]; then
-        run_fresh "$name" "$path" || return 1
+        if reset_for_worktree "$name" "$path"; then
+            :
+        else
+            reset_status=$?
+            return "$reset_status"
+        fi
     fi
 }
 
@@ -190,15 +131,21 @@ switch_worktree() {
     local name=$1
     local fresh=${2:-0}
     local target
+    local reset_status
     target=$(resolve_worktree "$name") || return 1
     if ! start_named "$name" 0; then
         printf 'Start des Worktrees "%s" fehlgeschlagen.\n' "$name" >&2
         return 1
     fi
 
-    if [ "$fresh" -eq 1 ] && ! run_fresh "$name" "$target"; then
-        printf 'Ziel-Stack läuft, aber der Datenbank-Reset wurde nicht abgeschlossen.\n' >&2
-        return 1
+    if [ "$fresh" -eq 1 ]; then
+        if reset_for_worktree "$name" "$target"; then
+            :
+        else
+            reset_status=$?
+            printf 'Reset des Ziel-Worktrees wurde nicht abgeschlossen.\n' >&2
+            return "$reset_status"
+        fi
     fi
     write_active_worktree "$name"
 }
@@ -222,15 +169,13 @@ show_status_for_name() {
         return 0
     fi
     load_worktree_state "$name" || return 1
-    printf 'project: %s\nurl: http://127.0.0.1:%s\nports: app=%s vite=%s db=%s redis=%s\n' \
-        "$WORKTREE_STATE_COMPOSE_PROJECT_NAME" "$WORKTREE_STATE_APP_PORT" \
-        "$WORKTREE_STATE_APP_PORT" "$WORKTREE_STATE_VITE_PORT" \
-        "$WORKTREE_STATE_DB_PORT" "$WORKTREE_STATE_REDIS_PORT"
-    if stack_is_running_for_worktree "$name" "$path"; then
-        printf 'status: running\n'
-    else
-        printf 'status: stopped\n'
-    fi
+    printf 'instance: %s\nports:' "$WORKTREE_INSTANCE_NAME"
+    while IFS='=' read -r profile_name profile_base; do
+        port_key=WORKTREE_PORT_${profile_name^^}
+        printf ' %s=%s' "${profile_name^^}" "${!port_key}"
+    done < <(worktree_profile_entries)
+    printf '\n'
+    run_consumer_hook "$name" "$path" status
 }
 
 show_status() {
@@ -252,7 +197,7 @@ show_all_status() {
         name=${path##*/}
         [ "$name" = .state ] && continue
         validate_worktree_name "$name" || continue
-        show_status_for_name "$name"
+        show_status_for_name "$name" || true
     done
     while IFS= read -r state_name; do
         [ -n "$state_name" ] || continue
@@ -334,6 +279,18 @@ case "$command" in
             usage >&2
             exit 1
         fi
+        ;;
+    reset)
+        if [ "$#" -eq 0 ]; then
+            name=$(active_worktree_name) || exit 1
+        elif [ "$#" -eq 1 ]; then
+            name=$1
+        else
+            usage >&2
+            exit 1
+        fi
+        target=$(resolve_worktree "$name") || exit 1
+        reset_for_worktree "$name" "$target"
         ;;
     prune)
         if [ "$#" -ne 0 ]; then

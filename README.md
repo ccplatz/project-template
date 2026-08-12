@@ -10,45 +10,46 @@ configuration files, and OpenCode setup.
 - `AGENTS.md` — Agent Guide (to be filled in per project)
 - `.opencode/plugins/guardrails.ts` — Automated guardrails plugin (file-edited, tool-execute-before, session-idle hooks)
 
-### Container management (`bin/container`)
-
-Manage your staging/production Docker stack.
-
-```sh
-./bin/container start [--build]        # start the stack
-./bin/container stop                   # stop the stack
-./bin/container restart [--build]      # stop then start
-./bin/container attach <short_name>    # shell into a running container
-./bin/container status                 # show environment, compose file, services, networks
-./bin/container ps                     # list project containers (docker ps with label filter)
-./bin/container logs [service] [-f]    # tail logs for a service (or all)
-```
-
-**Recommended:** Add a shell alias so you can run `container` from anywhere in the project:
-
-```sh
-alias container='./bin/container'
-```
-
-Configuration is read from `.env` — set `ENVIRONMENT=staging` or `ENVIRONMENT=prod` to
-pick the matching `docker-compose.{env}.yml`. External Docker networks listed in
-`EXTERNAL_NETWORKS` (comma-separated) are created automatically on `start` and
-cleaned up on `stop` if unused.
-
 ### Worktree management (`bin/worktree`)
 
-Git worktrees for parallel feature development with Laravel Sail.
-Bootstraps new worktrees (composer install, npm install, key:generate).
+Git worktrees for parallel feature development. The helper manages worktree
+creation, selection, persisted state, named host-port allocation, and lifecycle
+dispatch. It is stack-independent: all project-specific runtime behavior
+(Laravel, Sail, Compose, Composer, npm, Vite, workers) lives in a
+consumer-owned `bin/consumer` adapter in each worktree.
 
 ```sh
 ./bin/worktree create <name> [--existing]   # new worktree + bootstrap from main
-./bin/worktree switch <name> [--fresh]      # switch active worktree
-./bin/worktree start [--fresh]              # start the active worktree stack
-./bin/worktree stop                         # stop the active worktree stack
-./bin/worktree status                       # show active worktree name, path, branch, status
+./bin/worktree bootstrap <name>             # run the consumer bootstrap hook
+./bin/worktree start [<name>] [--fresh]     # start a named or active worktree
+./bin/worktree stop [<name>]                # stop a named or active worktree
+./bin/worktree switch <name> [--fresh]      # select and start a worktree
+./bin/worktree status [<name>]              # show worktree metadata and status
+./bin/worktree status --all                 # show all worktrees and assignments
+./bin/worktree reset [<name>]               # reset a named or active worktree
+./bin/worktree prune                        # remove orphaned state files
 ```
 
-Only one worktree stack can run at a time (shared port `:8080`).
+`--fresh` is a deprecated alias for `reset`. Multiple worktrees can run at the
+same time; each uses an isolated state record and a reserved group of generic
+host ports defined by `WORKTREE_PORT_PROFILE` in `.template/project.conf`. The
+canonical access URL and port semantics are decided by the consumer adapter,
+not by the template.
+
+### Consumer adapter (`bin/consumer`)
+
+Every worktree must provide an executable `bin/consumer` adapter that handles
+the generic lifecycle hooks `bootstrap`, `start`, `stop` (required) and
+`status`, `reset` (optional). The adapter receives the generic context through
+exported `WORKTREE_*` environment variables, including `WORKTREE_PORT_<PROFILE>`
+for each configured port profile entry.
+
+The Orchestrator/Adapter boundary: the template owns worktrees, state, ports,
+and dispatch; the consumer owns the runtime. See `docs/runtime-hooks.md` for
+the full hook contract, environment preparation (`.env.example` /
+`.env.template`), and Laravel/Sail and Laravel/Compose examples. Agent guidance
+for building a consumer adapter lives in
+`.opencode/skills/consumer-runtime-adapter/SKILL.md`.
 
 ### Configuration files
 - `.editorconfig` — consistent editor settings (UTF-8, LF, 4-space indent)
@@ -85,8 +86,8 @@ Permanent documentation for design rationale and implementation history:
 - `plans/` — Step-by-step implementation plans. Artifacts of completed or in-progress work.
 
 ### Tests
-- `tests/bin/container_test.sh` — unit tests for the container script
-- `tests/bin/worktree_test.sh` — unit tests for the worktree script
+- `tests/bin/worktree_test.sh` — unit tests for the worktree orchestration script
+- `tests/bin/project_config_test.sh` — unit tests for project configuration
 
 ### Guardrails (`bin/guardrails-check`)
 
@@ -174,16 +175,17 @@ git commit -m "Initial commit from project-template"
 ### 6. Run the tests
 
 ```sh
-./tests/bin/container_test.sh
+./tests/bin/project_config_test.sh
 ./tests/bin/worktree_test.sh
 ```
 
-The worktree test requires a Git repository and a `compose.yaml` in the root.
+The worktree test requires a Git repository and a `bin/consumer` fixture.
 
 ## What this template does NOT include
 
 - Framework code (Laravel, React, etc.)
+- A consumer-owned `bin/consumer` adapter (the project must provide one)
 - `compose.yaml` / `docker-compose.*.yml`
-- `.env` (copied from template)
+- `.env` (copied from the configured environment template)
 - `vendor/`, `node_modules/`
 - Project-specific content in `docs/instructions/` (stubs only)

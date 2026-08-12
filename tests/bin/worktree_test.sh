@@ -7,18 +7,132 @@ trap 'rm -rf "$repo"' EXIT
 
 mkdir -p "$repo/.worktrees"
 mkdir -p "$repo/.template"
-printf 'PROJECT_NAME=test-project\n' > "$repo/.template/project.conf"
+mkdir -p "$repo/bin"
+printf '%s\n' \
+    'PROJECT_NAME=test-project' \
+    'WORKTREE_PORT_PROFILE="http=8080,frontend=5173,database=3306,cache=6379"' \
+    'WORKTREE_PORT_STRIDE=10' \
+    'WORKTREE_ENV_TEMPLATE=.env.template' > "$repo/.template/project.conf"
+
+cat > "$repo/bin/consumer" <<'CONSUMER_EOF'
+#!/bin/bash
+set -euo pipefail
+
+hook=${1:-}
+if [ "$#" -ne 1 ]; then
+    printf 'BAD_ARG_COUNT=%s\n' "$#" >> "$WORKTREE_ROOT/consumer.log"
+    exit 97
+fi
+log="$WORKTREE_ROOT/consumer.log"
+marker_dir="$WORKTREE_ROOT/consumer-state"
+instance=${WORKTREE_INSTANCE_NAME:?}
+
+expected_environment_keys=(
+    WORKTREE_NAME
+    WORKTREE_PATH
+    WORKTREE_ROOT
+    WORKTREE_STATE_FILE
+    WORKTREE_ENV_FILE
+    WORKTREE_INSTANCE_NAME
+)
+[ "${PATH+x}" = x ] && expected_environment_keys+=(PATH)
+[ "${HOME+x}" = x ] && expected_environment_keys+=(HOME)
+while IFS='=' read -r state_key state_value; do
+    case "$state_key" in
+        WORKTREE_PORT_*) expected_environment_keys+=("$state_key") ;;
+    esac
+done < "$WORKTREE_STATE_FILE"
+
+actual_environment_keys=()
+while IFS='=' read -r environment_name environment_value; do
+    actual_environment_keys+=("$environment_name")
+done < <(tr '\0' '\n' < "/proc/$$/environ")
+
+environment_mismatch=
+for environment_name in "${actual_environment_keys[@]}"; do
+    environment_found=0
+    for expected_name in "${expected_environment_keys[@]}"; do
+        if [ "$environment_name" = "$expected_name" ]; then
+            environment_found=1
+            break
+        fi
+    done
+    if [ "$environment_found" -eq 0 ]; then
+        environment_mismatch="$environment_mismatch unexpected:$environment_name"
+    fi
+done
+for expected_name in "${expected_environment_keys[@]}"; do
+    environment_found=0
+    for environment_name in "${actual_environment_keys[@]}"; do
+        if [ "$expected_name" = "$environment_name" ]; then
+            environment_found=1
+            break
+        fi
+    done
+    if [ "$environment_found" -eq 0 ]; then
+        environment_mismatch="$environment_mismatch missing:$expected_name"
+    fi
+done
+if [ -n "$environment_mismatch" ]; then
+    printf 'UNEXPECTED_ENV=%s\n' "$environment_mismatch" >> "$log"
+    exit 98
+fi
+
+{
+    printf 'HOOK=%s\n' "$hook"
+    printf 'PWD=%s\n' "$PWD"
+    env | LC_ALL=C sort | LC_ALL=C grep '^WORKTREE_'
+    printf 'SAIL_SET=%s COMPOSE_SET=%s APP_SET=%s VITE_SET=%s DB_SET=%s REDIS_SET=%s\n' \
+        "${SAIL_BIN+y}" "${COMPOSE_PROJECT_NAME+y}" "${APP_PORT+y}" \
+        "${VITE_PORT+y}" "${FORWARD_DB_PORT+y}" "${FORWARD_REDIS_PORT+y}"
+} >> "$log"
+
+case "$hook" in
+    bootstrap)
+        : ;;
+    start)
+        mkdir -p "$marker_dir"
+        : > "$marker_dir/$instance"
+        ;;
+    stop)
+        rm -f "$marker_dir/$instance"
+        ;;
+    status)
+        if [ -f "$marker_dir/$instance" ]; then
+            printf 'status: running\n'
+        else
+            printf 'status: stopped\n'
+        fi
+        ;;
+    reset)
+        if [ -f "$WORKTREE_ROOT/.consumer-no-reset" ]; then
+            printf 'reset not supported\n' >&2
+            printf 'reset not supported\n' >> "$log"
+            exit 2
+        fi
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+
+if [ -f "$WORKTREE_ROOT/.consumer-fail-$hook" ]; then
+    exit 1
+fi
+exit 0
+CONSUMER_EOF
+chmod +x "$repo/bin/consumer"
+
 git -C "$repo" init -q -b main
 git -C "$repo" config user.email test@example.com
 git -C "$repo" config user.name 'Worktree Test'
 touch "$repo/README"
 printf 'APP_KEY=\n' > "$repo/.env.template"
-printf '%s\n' '{"scripts":{"dev":"vite"}}' > "$repo/package.json"
-printf 'services: {}\n' > "$repo/compose.yaml"
+printf 'APP_KEY=base64:from-example\n' > "$repo/.env.example"
 git -C "$repo" add README
 git -C "$repo" add .env.template
-git -C "$repo" add package.json
-git -C "$repo" add compose.yaml
+git -C "$repo" add .env.example
+git -C "$repo" add bin/consumer
 git -C "$repo" commit -q -m initial
 git -C "$repo" checkout -q -b existing-source
 printf 'APP_KEY=base64:already-set\n' > "$repo/.env.template"
@@ -33,6 +147,11 @@ worktree_lib_script="$(dirname "$0")/../../bin/worktree-lib.sh"
 # shellcheck source=../../bin/worktree-lib.sh
 # shellcheck disable=SC1091
 source "$worktree_lib_script"
+
+consumer_log="$repo/consumer.log"
+consumer_state="$repo/consumer-state"
+: > "$consumer_log"
+mkdir -p "$consumer_state"
 
 failures=0
 
@@ -182,17 +301,6 @@ assert_not_exists() {
     fi
 }
 
-mock_call_count_for_test() {
-    local step=$1
-    local call_file="$repo/mock-calls/$step"
-    local count=0
-
-    if [ -f "$call_file" ]; then
-        IFS= read -r count < "$call_file"
-    fi
-    printf '%s\n' "$count"
-}
-
 assert_exists() {
     local path=$1
     if [ -e "$path" ]; then
@@ -297,57 +405,8 @@ assert_status 1 validate_existing_branch missing-branch
 assert_eq 0 "$write_active_calls" \
     'validation does not write active worktree state'
 
-mkdir -p "$repo/vendor/bin" "$repo/vendor/laravel/sail/runtimes/8.5" \
-    "$repo/vendor/laravel/sail/database/mysql" \
-    "$repo/.worktrees/feature-x/vendor/bin"
-touch "$repo/vendor/bin/sail"
-touch "$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
-chmod +x "$repo/vendor/bin/sail"
-touch "$repo/.worktrees/feature-x/vendor/bin/sail"
-chmod +x "$repo/.worktrees/feature-x/vendor/bin/sail"
-MOCK_SAIL_LOG="$repo/sail.log"
-stack_state_dir="$repo/stack-running"
-mkdir -p "$stack_state_dir"
-export STACK_STATE_DIR="$stack_state_dir"
-run_sail_calls_log="$repo/run-sail-calls"
-: > "$run_sail_calls_log"
-run_sail() {
-    if [ -n "${SOURCE_SAIL_ENV:-}" ]; then
-        # Mirror Sail loading the target .env after receiving environment values.
-        source "$SOURCE_SAIL_ENV"
-    fi
-    printf 'x\n' >> "$run_sail_calls_log"
-    printf 'PWD=%s COMPOSE_PROJECT_NAME=%s SAIL_SOURCE_PATH=%s SAIL_BIN=%s SAIL_BUILD_CONTEXT=%s SAIL_BUILD_DOCKERFILE=%s SAIL_MYSQL_INIT_SCRIPT=%s ARGS=%s PROJECT=%s APP=%s VITE=%s DB=%s REDIS=%s\n' \
-        "$PWD" "${COMPOSE_PROJECT_NAME:-}" "${SAIL_SOURCE_PATH:-}" \
-        "${SAIL_BIN:-}" "${SAIL_BUILD_CONTEXT:-}" "${SAIL_BUILD_DOCKERFILE:-}" \
-        "${SAIL_MYSQL_INIT_SCRIPT:-}" "$*" "${COMPOSE_PROJECT_NAME:-}" \
-        "${APP_PORT:-}" "${VITE_PORT:-}" "${FORWARD_DB_PORT:-}" \
-        "${FORWARD_REDIS_PORT:-}" >> "$MOCK_SAIL_LOG"
-    case "$*" in
-        'ps -q laravel.test')
-            if [ -f "${STACK_STATE_DIR:?}/${COMPOSE_PROJECT_NAME:?}" ]; then
-                printf 'app-container-%s\n' "${COMPOSE_PROJECT_NAME:?}"
-            fi
-            ;;
-        'up -d --remove-orphans')
-            touch "${STACK_STATE_DIR:?}/${COMPOSE_PROJECT_NAME:?}"
-            ;;
-        'down --remove-orphans')
-            rm -f "${STACK_STATE_DIR:?}/${COMPOSE_PROJECT_NAME:?}"
-            ;;
-    esac
-}
-
-mkdir -p "$repo/bin"
 git -C "$repo" worktree add -q -b feature-y "$repo/.worktrees/feature-y"
-printf '%s\n' \
-    'COMPOSE_PROJECT_NAME=finance' \
-    'APP_PORT=8080' \
-    'VITE_PORT=5173' \
-    'FORWARD_DB_PORT=3306' \
-    'FORWARD_REDIS_PORT=6379' \
-    'APP_KEY=base64:feature-y' > "$repo/.worktrees/feature-y/.env"
-cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
+printf 'APP_KEY=base64:feature-y\n' > "$repo/.worktrees/feature-y/.env"
 
 busy_ports="$repo/busy-ports"
 printf '%s\n' '#!/bin/bash' \
@@ -367,92 +426,267 @@ mkdir -p "$state_dir"
 rm -f "$state_dir/feature-x.env"
 assert_status 0 ensure_worktree_state feature-x "$repo/.worktrees/feature-x"
 assert_status 0 load_worktree_state feature-x
-assert_eq feature-x "$WORKTREE_STATE_NAME" 'state stores the Worktree name'
-assert_eq test-project-feature-x "$WORKTREE_STATE_COMPOSE_PROJECT_NAME" \
-    'state derives an isolated Compose project name'
-assert_eq 8080 "$WORKTREE_STATE_APP_PORT" 'first group uses the canonical HTTP port'
-assert_eq 5173 "$WORKTREE_STATE_VITE_PORT" 'first group uses the Vite offset'
-assert_eq 3306 "$WORKTREE_STATE_DB_PORT" 'first group uses the database offset'
-assert_eq 6379 "$WORKTREE_STATE_REDIS_PORT" 'first group uses the Redis offset'
+assert_eq feature-x "$WORKTREE_NAME" 'state stores the Worktree name'
+assert_eq test-project-feature-x "$WORKTREE_INSTANCE_NAME" \
+    'state derives an isolated instance name'
+assert_eq 8080 "$WORKTREE_PORT_HTTP" 'first group uses the configured HTTP port'
+assert_eq 5173 "$WORKTREE_PORT_FRONTEND" 'first group uses the configured frontend port'
+assert_eq 3306 "$WORKTREE_PORT_DATABASE" 'first group uses the configured database port'
+assert_eq 6379 "$WORKTREE_PORT_CACHE" 'first group uses the configured cache port'
 assert_contains "$state_dir/feature-x.env" \
-    'COMPOSE_PROJECT_NAME=test-project-feature-x'
+    'WORKTREE_INSTANCE_NAME=test-project-feature-x'
+assert_contains "$state_dir/feature-x.env" 'WORKTREE_PORT_HTTP=8080'
+assert_contains "$state_dir/feature-x.env" 'WORKTREE_PORT_FRONTEND=5173'
+assert_contains "$state_dir/feature-x.env" 'WORKTREE_PORT_DATABASE=3306'
+assert_contains "$state_dir/feature-x.env" 'WORKTREE_PORT_CACHE=6379'
+assert_not_contains "$state_dir/feature-x.env" 'COMPOSE_PROJECT_NAME='
+assert_not_contains "$state_dir/feature-x.env" 'APP_PORT='
+assert_not_contains "$state_dir/feature-x.env" 'VITE_PORT='
+assert_not_contains "$state_dir/feature-x.env" 'FORWARD_DB_PORT='
+assert_not_contains "$state_dir/feature-x.env" 'FORWARD_REDIS_PORT='
 
+: > "$busy_ports"
+assert_status 0 ensure_worktree_state stride-test "$repo/.worktrees/feature-x"
+assert_status 0 load_worktree_state stride-test
+assert_eq 8090 "$WORKTREE_PORT_HTTP" 'second group uses the configured HTTP stride'
+assert_eq 5183 "$WORKTREE_PORT_FRONTEND" 'second group uses the configured frontend stride'
+assert_eq 3316 "$WORKTREE_PORT_DATABASE" 'second group uses the configured database stride'
+assert_eq 6389 "$WORKTREE_PORT_CACHE" 'second group uses the configured cache stride'
+rm -f "$state_dir/stride-test.env"
+
+rm -f "$repo/.worktrees/feature-y/.env"
+printf '%s\n' 'APP_KEY=base64:from-template' 'UNTOUCHED_APPLICATION_VALUE=keep' \
+    > "$repo/.worktrees/feature-y/.env.template"
 printf '8090\n' > "$busy_ports"
 assert_status 0 ensure_worktree_state feature-y "$repo/.worktrees/feature-y"
 assert_status 0 load_worktree_state feature-y
-assert_eq 8100 "$WORKTREE_STATE_APP_PORT" 'allocator skips a busy second HTTP group'
-assert_eq 5193 "$WORKTREE_STATE_VITE_PORT" 'allocator keeps the group offsets aligned'
-assert_eq 3326 "$WORKTREE_STATE_DB_PORT" 'allocator keeps the database group aligned'
-assert_eq 6399 "$WORKTREE_STATE_REDIS_PORT" 'allocator keeps the Redis group aligned'
+assert_eq 8100 "$WORKTREE_PORT_HTTP" 'allocator skips a busy second HTTP group'
+assert_eq 5193 "$WORKTREE_PORT_FRONTEND" 'allocator keeps the group offsets aligned'
+assert_eq 3326 "$WORKTREE_PORT_DATABASE" 'allocator keeps the database group aligned'
+assert_eq 6399 "$WORKTREE_PORT_CACHE" 'allocator keeps the cache group aligned'
 
 assert_status 0 load_worktree_state feature-x
-assert_eq 8080 "$WORKTREE_STATE_APP_PORT" 'state reuses the first group after another allocation'
+assert_eq 8080 "$WORKTREE_PORT_HTTP" 'state reuses the first group after another allocation'
+assert_eq 5173 "$WORKTREE_PORT_FRONTEND" 'persisted state retains every profile port'
+assert_contains "$repo/.worktrees/feature-y/.env" 'APP_KEY=base64:from-template'
+assert_contains "$repo/.worktrees/feature-y/.env" 'UNTOUCHED_APPLICATION_VALUE=keep'
+assert_not_contains "$repo/.worktrees/feature-y/.env" 'COMPOSE_PROJECT_NAME='
+assert_not_contains "$repo/.worktrees/feature-y/.env" 'APP_PORT='
+assert_not_contains "$repo/.worktrees/feature-y/.env" 'VITE_PORT='
+assert_not_contains "$repo/.worktrees/feature-y/.env" 'FORWARD_DB_PORT='
+assert_not_contains "$repo/.worktrees/feature-y/.env" 'FORWARD_REDIS_PORT='
 
-: > "$MOCK_SAIL_LOG"
-touch "$stack_state_dir/test-project-feature-x"
-assert_status 0 stack_is_running_for_worktree feature-x "$repo/.worktrees/feature-x"
-assert_eq 1 "$(wc -l < "$run_sail_calls_log")" 'stack status uses the Sail command seam'
-assert_contains "$MOCK_SAIL_LOG" 'COMPOSE_PROJECT_NAME=test-project-feature-x'
-assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-x APP=8080 VITE=5173 DB=3306 REDIS=6379'
-assert_contains "$MOCK_SAIL_LOG" 'ARGS=ps -q laravel.test'
-rm -f "$stack_state_dir/test-project-feature-x"
+printf '%s\n' \
+    'WORKTREE_NAME=cross-member' \
+    'WORKTREE_INSTANCE_NAME=test-project-cross-member' \
+    'WORKTREE_PORT_HTTP=9001' \
+    'WORKTREE_PORT_FRONTEND=9002' \
+    'WORKTREE_PORT_DATABASE=9003' \
+    'WORKTREE_PORT_CACHE=9004' > "$state_dir/cross-member.env"
+assert_status 1 worktree_state_port_available cross-candidate \
+    9000 9001 9005 9006
+rm -f "$state_dir/cross-member.env"
 
-printf '%s\n' '{"scripts":{"dev":"vite"}}' > "$repo/.worktrees/feature-x/package.json"
-mkdir -p "$repo/.worktrees/feature-x/node_modules"
-: > "$MOCK_SAIL_LOG"
+printf '%s\n' \
+    'WORKTREE_NAME=leading-zero' \
+    'WORKTREE_INSTANCE_NAME=test-project-leading-zero' \
+    'WORKTREE_PORT_HTTP=09000' \
+    'WORKTREE_PORT_FRONTEND=19001' \
+    'WORKTREE_PORT_DATABASE=19002' \
+    'WORKTREE_PORT_CACHE=19003' > "$state_dir/leading-zero.env"
+assert_failure_contains 'dezimal und gültig' load_worktree_state leading-zero
+rm -f "$state_dir/leading-zero.env"
+
+custom_root=$(mktemp -d)
+mkdir -p "$custom_root/.template" "$custom_root/.worktrees/custom" \
+    "$custom_root/bin" "$custom_root/.worktrees/custom/bin"
+printf '%s\n' \
+    'PROJECT_NAME=custom-project' \
+    'WORKTREE_PORT_PROFILE="web=9100,queue=9200"' \
+    'WORKTREE_PORT_STRIDE=7' \
+    'WORKTREE_ENV_TEMPLATE=.env.example' > "$custom_root/.template/project.conf"
+printf 'CUSTOM_VALUE=preserve\n' > "$custom_root/.worktrees/custom/.env.example"
+cp "$repo/bin/consumer" "$custom_root/bin/consumer"
+chmod +x "$custom_root/bin/consumer"
+cp "$repo/bin/consumer" "$custom_root/.worktrees/custom/bin/consumer"
+chmod +x "$custom_root/.worktrees/custom/bin/consumer"
+custom_run_log="$custom_root/consumer.log"
+(
+    export WORKTREE_TEST_ROOT="$custom_root"
+    # shellcheck source=../../bin/worktree-lib.sh
+    # shellcheck disable=SC1091
+    source "$worktree_lib_script"
+    unset APP_PORT VITE_PORT FORWARD_DB_PORT FORWARD_REDIS_PORT COMPOSE_PROJECT_NAME SAIL_BIN
+    start_for_worktree custom "$custom_root/.worktrees/custom"
+)
+assert_contains "$custom_run_log" 'WORKTREE_INSTANCE_NAME=custom-project-custom'
+assert_contains "$custom_run_log" 'WORKTREE_PORT_WEB=9100'
+assert_contains "$custom_run_log" 'WORKTREE_PORT_QUEUE=9200'
+assert_contains "$custom_run_log" \
+    'SAIL_SET= COMPOSE_SET= APP_SET= VITE_SET= DB_SET= REDIS_SET='
+assert_exists "$custom_root/.worktrees/custom/.env"
+rm -rf "$custom_root"
+
+custom_command_root=$(mktemp -d)
+mkdir -p "$custom_command_root/.template" "$custom_command_root/.worktrees" \
+    "$custom_command_root/bin"
+printf '%s\n' \
+    'PROJECT_NAME=custom-command' \
+    'WORKTREE_PORT_PROFILE="web=9300,queue=9400"' \
+    'WORKTREE_PORT_STRIDE=7' \
+    'WORKTREE_ENV_TEMPLATE=.env.example' > "$custom_command_root/.template/project.conf"
+printf 'README\n' > "$custom_command_root/README"
+printf 'CUSTOM_VALUE=preserve\n' > "$custom_command_root/.env.example"
+cp "$repo/bin/consumer" "$custom_command_root/bin/consumer"
+chmod +x "$custom_command_root/bin/consumer"
+git -C "$custom_command_root" init -q -b main
+git -C "$custom_command_root" config user.email test@example.com
+git -C "$custom_command_root" config user.name 'Worktree Test'
+git -C "$custom_command_root" add README .env.example bin/consumer
+git -C "$custom_command_root" commit -q -m initial
+git -C "$custom_command_root" worktree add -q -b custom \
+    "$custom_command_root/.worktrees/custom"
+custom_command_log="$custom_command_root/consumer.log"
+command_script=$(cd "$(dirname "$0")/../.." && pwd)/bin/worktree
+env -u APP_PORT -u VITE_PORT -u FORWARD_DB_PORT -u FORWARD_REDIS_PORT \
+    -u COMPOSE_PROJECT_NAME -u SAIL_BIN WORKTREE_TEST_ROOT="$custom_command_root" \
+    "$command_script" start custom
+assert_contains "$custom_command_log" 'WORKTREE_INSTANCE_NAME=custom-command-custom'
+assert_contains "$custom_command_log" 'WORKTREE_PORT_WEB=9300'
+assert_contains "$custom_command_log" 'WORKTREE_PORT_QUEUE=9400'
+assert_contains "$custom_command_log" \
+    'SAIL_SET= COMPOSE_SET= APP_SET= VITE_SET= DB_SET= REDIS_SET='
+assert_not_contains "$custom_command_log" 'UNEXPECTED_ENV='
+git -C "$custom_command_root" worktree remove -f "$custom_command_root/.worktrees/custom"
+rm -rf "$custom_command_root"
+
+: > "$consumer_log"
+assert_status 98 env -i \
+    PATH="$PATH" HOME="$HOME" \
+    WORKTREE_NAME=feature-x \
+    WORKTREE_PATH="$repo/.worktrees/feature-x" \
+    WORKTREE_ROOT="$repo" \
+    WORKTREE_STATE_FILE="$state_dir/feature-x.env" \
+    WORKTREE_ENV_FILE="$repo/.worktrees/feature-x/.env" \
+    WORKTREE_INSTANCE_NAME=test-project-feature-x \
+    WORKTREE_PORT_HTTP=8080 \
+    WORKTREE_PORT_FRONTEND=5173 \
+    WORKTREE_PORT_DATABASE=3306 \
+    WORKTREE_PORT_CACHE=6379 \
+    WORKTREE_PORT_PROFILE=leaked \
+    WORKTREE_PORT_EXTRA=leaked \
+    "$repo/bin/consumer" start
+: > "$consumer_log"
+export WORKTREE_EXTRA=must-not-reach-consumer
+assert_status 0 run_consumer_hook feature-x "$repo/.worktrees/feature-x" start
+unset WORKTREE_EXTRA
+assert_contains "$consumer_log" 'HOOK=start'
+assert_contains "$consumer_log" "PWD=$repo/.worktrees/feature-x"
+assert_contains "$consumer_log" 'WORKTREE_NAME=feature-x'
+assert_contains "$consumer_log" 'WORKTREE_INSTANCE_NAME=test-project-feature-x'
+assert_contains "$consumer_log" "WORKTREE_PATH=$repo/.worktrees/feature-x"
+assert_contains "$consumer_log" "WORKTREE_ROOT=$repo"
+assert_contains "$consumer_log" "WORKTREE_STATE_FILE=$repo/.worktrees/.state/feature-x.env"
+assert_contains "$consumer_log" "WORKTREE_ENV_FILE=$repo/.worktrees/feature-x/.env"
+assert_contains "$consumer_log" 'WORKTREE_PORT_HTTP=8080'
+assert_contains "$consumer_log" 'WORKTREE_PORT_FRONTEND=5173'
+assert_contains "$consumer_log" 'WORKTREE_PORT_DATABASE=3306'
+assert_contains "$consumer_log" 'WORKTREE_PORT_CACHE=6379'
+assert_contains "$consumer_log" \
+    'SAIL_SET= COMPOSE_SET= APP_SET= VITE_SET= DB_SET= REDIS_SET='
+assert_not_contains "$consumer_log" 'UNEXPECTED_ENV='
+assert_exists "$consumer_state/test-project-feature-x"
+
+git -C "$repo" worktree add -q -b no-consumer "$repo/.worktrees/no-consumer"
+printf 'APP_KEY=base64:no-consumer\n' > "$repo/.worktrees/no-consumer/.env"
+rm -rf "$repo/.worktrees/no-consumer/bin"
+assert_status 0 ensure_worktree_state no-consumer "$repo/.worktrees/no-consumer"
+: > "$consumer_log"
+assert_failure_contains 'no-consumer' \
+    run_consumer_hook no-consumer "$repo/.worktrees/no-consumer" start
+assert_failure_contains 'docs/runtime-hooks.md' \
+    run_consumer_hook no-consumer "$repo/.worktrees/no-consumer" start
+assert_not_contains "$consumer_log" 'HOOK=start'
+git -C "$repo" worktree remove -f "$repo/.worktrees/no-consumer"
+rm -f "$state_dir/no-consumer.env"
+
+: > "$consumer_log"
+touch "$repo/.consumer-fail-start"
+assert_status 1 run_consumer_hook feature-x "$repo/.worktrees/feature-x" start
+rm -f "$repo/.consumer-fail-start"
+assert_contains "$consumer_log" 'HOOK=start'
+
+: > "$consumer_log"
+assert_status 0 bootstrap_for_worktree feature-x "$repo/.worktrees/feature-x"
+assert_contains "$consumer_log" 'HOOK=bootstrap'
+
+: > "$consumer_log"
+assert_status 0 run_consumer_hook feature-x "$repo/.worktrees/feature-x" reset
+assert_contains "$consumer_log" 'HOOK=reset'
+
+: > "$consumer_log"
+touch "$repo/.consumer-no-reset"
+assert_status 2 run_consumer_hook feature-x "$repo/.worktrees/feature-x" reset
+rm -f "$repo/.consumer-no-reset"
+assert_contains "$consumer_log" 'HOOK=reset'
+assert_contains "$consumer_log" 'reset not supported'
+
+: > "$consumer_log"
+assert_status 0 run_consumer_hook feature-x "$repo/.worktrees/feature-x" status
+assert_contains "$consumer_log" 'HOOK=status'
+assert_output_contains 'status: running' \
+    run_consumer_hook feature-x "$repo/.worktrees/feature-x" status
+
+: > "$consumer_log"
+assert_status 0 run_consumer_hook feature-x "$repo/.worktrees/feature-x" stop
+assert_not_exists "$consumer_state/test-project-feature-x"
+
+: > "$consumer_log"
 assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
 assert_status 0 start_for_worktree feature-y "$repo/.worktrees/feature-y"
-assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-x APP=8080 VITE=5173 DB=3306 REDIS=6379'
-assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-feature-y APP=8100 VITE=5193 DB=3326 REDIS=6399'
-assert_contains "$MOCK_SAIL_LOG" 'ARGS=run sh -lc'
-assert_contains "$MOCK_SAIL_LOG" 'pid_file=/tmp/project-template-vite.pid'
-assert_contains "$MOCK_SAIL_LOG" 'npm run dev'
-
-: > "$MOCK_SAIL_LOG"
-assert_status 0 start_for_worktree feature-y "$repo/.worktrees/feature-y"
-assert_not_contains "$MOCK_SAIL_LOG" 'ARGS=run sh -lc'
-
-: > "$MOCK_SAIL_LOG"
-export SOURCE_SAIL_ENV=.env
-assert_status 0 run_worktree_sail feature-y "$repo/.worktrees/feature-y" \
-    "$repo/.worktrees/feature-y/vendor/bin/sail" '' '' '' up -d --remove-orphans
-unset SOURCE_SAIL_ENV
-assert_contains "$MOCK_SAIL_LOG" \
-    'PROJECT=test-project-feature-y APP=8100 VITE=5193 DB=3326 REDIS=6399'
-
+assert_contains "$consumer_log" 'WORKTREE_INSTANCE_NAME=test-project-feature-x'
+assert_contains "$consumer_log" 'WORKTREE_INSTANCE_NAME=test-project-feature-y'
+: > "$consumer_log"
 assert_status 0 stop_for_worktree feature-x "$repo/.worktrees/feature-x"
-assert_not_exists "$stack_state_dir/test-project-feature-x"
-if [ -f "$stack_state_dir/test-project-feature-y" ]; then
+assert_not_exists "$consumer_state/test-project-feature-x"
+if [ -f "$consumer_state/test-project-feature-y" ]; then
     printf 'ok - stopping feature-x keeps feature-y running\n'
 else
     printf 'not ok - stopping feature-x removed feature-y\n'
     failures=$((failures + 1))
 fi
 
-printf '8080\n' > "$busy_ports"
-assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
-: > "$busy_ports"
-
 git -C "$repo" worktree add -q -b malformed-state "$repo/.worktrees/malformed-state"
 printf 'APP_KEY=base64:malformed-state\n' > "$repo/.worktrees/malformed-state/.env"
-cp "$repo/compose.yaml" "$repo/.worktrees/malformed-state/compose.yaml"
 printf '%s\n' \
     'WORKTREE_NAME=malformed-state' \
-    'COMPOSE_PROJECT_NAME=test-project-malformed-state' \
-    'APP_PORT=8080' \
-    'VITE_PORT=5173' \
-    'FORWARD_DB_PORT=3306' \
-    'FORWARD_REDIS_PORT=6379' \
+    'WORKTREE_INSTANCE_NAME=test-project-malformed-state' \
+    'WORKTREE_PORT_HTTP=8080' \
+    'WORKTREE_PORT_FRONTEND=5173' \
+    'WORKTREE_PORT_DATABASE=3306' \
+    'WORKTREE_PORT_CACHE=6379' \
     'UNEXPECTED=reject-me' > "$state_dir/malformed-state.env"
-: > "$MOCK_SAIL_LOG"
+: > "$consumer_log"
 assert_failure_contains 'ungültiger Worktree-Zustand' \
     start_for_worktree malformed-state "$repo/.worktrees/malformed-state"
-assert_not_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
+assert_not_contains "$consumer_log" 'HOOK=start'
 git -C "$repo" worktree remove -f "$repo/.worktrees/malformed-state"
 rm -f "$state_dir/malformed-state.env"
 
+printf '%s\n' \
+    'WORKTREE_NAME=duplicate-state' \
+    'WORKTREE_INSTANCE_NAME=test-project-duplicate-state' \
+    'WORKTREE_PORT_HTTP=8080' \
+    'WORKTREE_PORT_HTTP=8090' \
+    'WORKTREE_PORT_FRONTEND=5173' \
+    'WORKTREE_PORT_DATABASE=3306' \
+    'WORKTREE_PORT_CACHE=6379' > "$state_dir/duplicate-state.env"
+assert_failure_contains 'doppelter Schlüssel WORKTREE_PORT_HTTP' \
+    load_worktree_state duplicate-state
+rm -f "$state_dir/duplicate-state.env"
+
 PROJECT_NAME=Bad.Name
-assert_failure_contains 'ungültiger Compose-Projektname' \
+assert_failure_contains 'ungültiger Worktree-Instanzname' \
     ensure_worktree_state bad-project "$repo/.worktrees/feature-x"
 PROJECT_NAME=test-project
 assert_not_exists "$repo/.worktrees/.state/bad-project.env"
@@ -460,7 +694,7 @@ assert_not_exists "$state_dir/.allocation-lock"
 
 git -C "$repo" worktree add -q -b lock-test "$repo/.worktrees/lock-test"
 printf 'APP_KEY=base64:lock-test\n' > "$repo/.worktrees/lock-test/.env"
-cp "$repo/compose.yaml" "$repo/.worktrees/lock-test/compose.yaml"
+rm -f "$repo/.worktrees/lock-test/.env" "$repo/.worktrees/lock-test/.env.template"
 lock_dir="$state_dir/.allocation-lock"
 mkdir -p "$lock_dir"
 printf '%s\n' "$$" > "$lock_dir/pid"
@@ -471,588 +705,227 @@ assert_contains "$lock_dir/pid" "$$"
 printf '%s\n' 99999999 > "$lock_dir/pid"
 assert_status 0 ensure_worktree_state lock-test "$repo/.worktrees/lock-test"
 assert_not_exists "$lock_dir"
+assert_not_exists "$repo/.worktrees/lock-test/.env"
 rm -f "$state_dir/lock-test.env"
 git -C "$repo" worktree remove -f "$repo/.worktrees/lock-test"
 
 git -C "$repo" worktree add -q -b busy-8080 "$repo/.worktrees/busy-8080"
 printf 'APP_KEY=base64:busy-8080\n' > "$repo/.worktrees/busy-8080/.env"
-cp "$repo/compose.yaml" "$repo/.worktrees/busy-8080/compose.yaml"
 printf '8080\n' > "$busy_ports"
 assert_status 0 ensure_worktree_state busy-8080 "$repo/.worktrees/busy-8080"
 assert_status 0 load_worktree_state busy-8080
-assert_eq 8090 "$WORKTREE_STATE_APP_PORT" 'a busy 8080 selects the next complete HTTP group'
-assert_eq 5183 "$WORKTREE_STATE_VITE_PORT" 'a busy 8080 keeps the Vite offset within the group'
-assert_eq 3316 "$WORKTREE_STATE_DB_PORT" 'a busy 8080 keeps the database offset within the group'
-assert_eq 6389 "$WORKTREE_STATE_REDIS_PORT" 'a busy 8080 keeps the Redis offset within the group'
+assert_eq 8090 "$WORKTREE_PORT_HTTP" 'a busy 8080 selects the next complete HTTP group'
+assert_eq 5183 "$WORKTREE_PORT_FRONTEND" 'a busy 8080 keeps the frontend offset within the group'
+assert_eq 3316 "$WORKTREE_PORT_DATABASE" 'a busy 8080 keeps the database offset within the group'
+assert_eq 6389 "$WORKTREE_PORT_CACHE" 'a busy 8080 keeps the cache offset within the group'
 git -C "$repo" worktree remove -f "$repo/.worktrees/busy-8080"
 rm -f "$state_dir/busy-8080.env"
 
 git -C "$repo" worktree add -q -b no-state-start "$repo/.worktrees/no-state-start"
 printf 'APP_KEY=base64:no-state-start\n' > "$repo/.worktrees/no-state-start/.env"
-cp "$repo/compose.yaml" "$repo/.worktrees/no-state-start/compose.yaml"
-: > "$MOCK_SAIL_LOG"
+: > "$consumer_log"
 : > "$busy_ports"
 assert_status 0 start_for_worktree no-state-start "$repo/.worktrees/no-state-start"
-assert_contains "$MOCK_SAIL_LOG" 'COMPOSE_PROJECT_NAME=test-project-no-state-start'
-assert_contains "$MOCK_SAIL_LOG" 'PROJECT=test-project-no-state-start APP=8090 VITE=5183 DB=3316 REDIS=6389'
-assert_contains "$MOCK_SAIL_LOG" "SAIL_SOURCE_PATH=$repo/.worktrees/no-state-start"
-assert_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
+assert_contains "$consumer_log" 'HOOK=start'
+assert_contains "$consumer_log" 'WORKTREE_INSTANCE_NAME=test-project-no-state-start'
+assert_contains "$consumer_log" 'WORKTREE_PORT_HTTP=8090'
+assert_contains "$consumer_log" 'WORKTREE_PORT_FRONTEND=5183'
+assert_contains "$consumer_log" 'WORKTREE_PORT_DATABASE=3316'
+assert_contains "$consumer_log" 'WORKTREE_PORT_CACHE=6389'
 git -C "$repo" worktree remove -f "$repo/.worktrees/no-state-start"
 rm -f "$state_dir/no-state-start.env"
 
-: > "$MOCK_SAIL_LOG"
-assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
-assert_contains "$MOCK_SAIL_LOG" 'ARGS=up -d --remove-orphans'
-assert_contains "$MOCK_SAIL_LOG" "SAIL_SOURCE_PATH=$repo/.worktrees/feature-x"
-assert_contains "$MOCK_SAIL_LOG" "SAIL_BIN=$repo/vendor/bin/sail"
-assert_contains "$MOCK_SAIL_LOG" "SAIL_MYSQL_INIT_SCRIPT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
-assert_contains "$MOCK_SAIL_LOG" "SAIL_BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5"
-assert_contains "$MOCK_SAIL_LOG" 'SAIL_BUILD_DOCKERFILE=Dockerfile'
-assert_not_contains "$MOCK_SAIL_LOG" 'migrate:fresh'
-
-mkdir -p "$repo/.worktrees/feature-x/vendor/laravel/sail/runtimes/8.5" \
-    "$repo/.worktrees/feature-x/vendor/laravel/sail/database/mysql"
-touch "$repo/.worktrees/feature-x/vendor/laravel/sail/database/mysql/create-testing-database.sh"
-: > "$MOCK_SAIL_LOG"
-assert_status 0 start_for_worktree feature-x "$repo/.worktrees/feature-x"
-assert_contains "$MOCK_SAIL_LOG" "SAIL_BIN=$repo/.worktrees/feature-x/vendor/bin/sail"
-assert_contains "$MOCK_SAIL_LOG" "SAIL_SOURCE_PATH=$repo/.worktrees/feature-x"
-assert_contains "$MOCK_SAIL_LOG" 'SAIL_BUILD_CONTEXT= SAIL_BUILD_DOCKERFILE= SAIL_MYSQL_INIT_SCRIPT='
-
-: > "$MOCK_SAIL_LOG"
-assert_status 0 stop_for_worktree feature-x "$repo/.worktrees/feature-x"
-assert_contains "$MOCK_SAIL_LOG" 'ARGS=down --remove-orphans'
-assert_not_contains "$MOCK_SAIL_LOG" '--volumes'
-
-export SAIL_BUILD_CONTEXT=/foreign/context
-export SAIL_BUILD_DOCKERFILE=/foreign/Dockerfile
-export SAIL_MYSQL_INIT_SCRIPT=/foreign/init.sh
-: > "$MOCK_SAIL_LOG"
-assert_status 0 stop_stack feature-x "$repo/.worktrees/feature-x" "$repo/.worktrees/feature-x/vendor/bin/sail" ''
-assert_contains "$MOCK_SAIL_LOG" 'SAIL_BUILD_CONTEXT= SAIL_BUILD_DOCKERFILE= SAIL_MYSQL_INIT_SCRIPT='
-
-rm -rf "$repo/.worktrees/feature-x/vendor/laravel/sail"
-: > "$MOCK_SAIL_LOG"
-assert_status 0 stop_for_worktree feature-x "$repo/.worktrees/feature-x"
-assert_contains "$MOCK_SAIL_LOG" "SAIL_BIN=$repo/vendor/bin/sail"
-assert_contains "$MOCK_SAIL_LOG" "SAIL_MYSQL_INIT_SCRIPT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
-
-: > "$MOCK_SAIL_LOG"
-printf 'y\n' | assert_status 0 run_fresh feature-x "$repo/.worktrees/feature-x"
-assert_contains "$MOCK_SAIL_LOG" 'ARGS=artisan migrate:fresh --seed'
-assert_contains "$MOCK_SAIL_LOG" 'SAIL_BUILD_CONTEXT= SAIL_BUILD_DOCKERFILE= SAIL_MYSQL_INIT_SCRIPT='
-
 PATH=$old_path
 
-command_script=$(cd "$(dirname "$0")/../.." && pwd)/bin/worktree
-command_log="$repo/command.log"
-stack_state="$repo/stack-running"
-mkdir -p "$stack_state"
-cat > "$repo/vendor/bin/sail" <<'EOF'
-#!/bin/bash
-
-state_marker="${STACK_STATE_DIR:?}/${COMPOSE_PROJECT_NAME:?}"
-
-mock_call_count() {
-    local step=$1
-    local call_file="${MOCK_CALL_DIR:?}/$step"
-    local count=0
-    if [ -f "$call_file" ]; then
-        IFS= read -r count < "$call_file"
-    fi
-    count=$((count + 1))
-    printf '%s\n' "$count" > "$call_file"
-}
-
-printf 'PWD=%s SOURCE=%s BIN=%s BUILD_CONTEXT=%s BUILD_DOCKERFILE=%s MYSQL_INIT=%s ARGS=%s PROJECT=%s APP=%s VITE=%s DB=%s REDIS=%s\n' \
-    "$PWD" "${SAIL_SOURCE_PATH:-}" "${SAIL_BIN:-}" "${SAIL_BUILD_CONTEXT:-}" \
-    "${SAIL_BUILD_DOCKERFILE:-}" "${SAIL_MYSQL_INIT_SCRIPT:-}" "$*" "${COMPOSE_PROJECT_NAME:-}" \
-    "${APP_PORT:-}" "${VITE_PORT:-}" "${FORWARD_DB_PORT:-}" \
-    "${FORWARD_REDIS_PORT:-}" >> "${COMMAND_LOG:?}"
-case "$*" in
-    'ps -q laravel.test')
-        if [ -f "$state_marker" ]; then
-            printf 'container-%s\n' "${COMPOSE_PROJECT_NAME:?}"
-        fi
-        ;;
-    'up -d --remove-orphans')
-        if [ "${FAIL_BOOTSTRAP_STEP:-}" = up ]; then exit 1; fi
-        case "${SAIL_SOURCE_PATH:-}" in
-            "${FAIL_UP_PATH:-}")
-                if [ -n "${FAIL_UP_PATH:-}" ]; then exit 1; fi
-                ;;
-        esac
-        touch "$state_marker"
-        ;;
-    'down --remove-orphans')
-        rm -f "$state_marker"
-        : > "${BUSY_PORTS:?}"
-        ;;
-    'composer install')
-        mock_call_count composer
-        if [ "${FAIL_BOOTSTRAP_STEP:-}" = composer ]; then
-            exit 1
-        fi
-        mkdir -p "$SAIL_SOURCE_PATH/vendor/bin" "$SAIL_SOURCE_PATH/vendor/laravel/sail"
-        touch "$SAIL_SOURCE_PATH/vendor/autoload.php"
-        if [ "${PARTIAL_COMPOSER_INSTALL:-0}" -eq 1 ]; then
-            touch "$SAIL_SOURCE_PATH/vendor/bin/sail"
-            chmod 644 "$SAIL_SOURCE_PATH/vendor/bin/sail"
-            exit 0
-        fi
-        cp "$ROOT_SAIL" "$SAIL_SOURCE_PATH/vendor/bin/sail"
-        chmod +x "$SAIL_SOURCE_PATH/vendor/bin/sail"
-        ;;
-    'npm install')
-        mock_call_count npm
-        if [ "${FAIL_BOOTSTRAP_STEP:-}" = npm ]; then
-            exit 1
-        fi
-        mkdir -p "$SAIL_SOURCE_PATH/node_modules"
-        ;;
-    'artisan key:generate')
-        mock_call_count key
-        if [ "${FAIL_BOOTSTRAP_STEP:-}" = key ]; then
-            exit 1
-        fi
-        printf 'APP_KEY=base64:generated-by-test\n' > "$SAIL_SOURCE_PATH/.env"
-        ;;
-    'artisan migrate:fresh --seed')
-        if [ "${FAIL_FRESH:-0}" -eq 1 ]; then exit 1; fi
-        ;;
-esac
-EOF
-chmod +x "$repo/vendor/bin/sail"
-cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-x/vendor/bin/sail"
-chmod +x "$repo/.worktrees/feature-x/vendor/bin/sail"
-mkdir -p "$repo/.worktrees/feature-y/vendor/bin"
-cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-y/vendor/bin/sail"
-chmod +x "$repo/.worktrees/feature-y/vendor/bin/sail"
-export COMMAND_LOG="$command_log" STACK_STATE_DIR="$stack_state" ROOT_SAIL="$repo/vendor/bin/sail" \
-    ROOT_MYSQL_INIT="$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
-MOCK_CALL_DIR="$repo/mock-calls"
-mkdir -p "$MOCK_CALL_DIR"
-export MOCK_CALL_DIR
-PATH="$repo/bin:$old_path"
 : > "$busy_ports"
+PATH="$repo/bin:$old_path"
 
 run_command() {
     WORKTREE_TEST_ROOT="$repo" "$command_script" "$@"
 }
 
-rm -rf "$repo/.worktree-active" "$stack_state" "$command_log"
+printf '%s\n' \
+    'PROJECT_NAME=test-project' \
+    'WORKTREE_PORT_PROFILE="http=8080,frontend=5173,database=3306,cache=6379"' \
+    'WORKTREE_PORT_STRIDE=10' \
+    'WORKTREE_ENV_TEMPLATE=.env.example' > "$repo/.template/project.conf"
+: > "$consumer_log"
+assert_status 0 run_command create example-create
+assert_exists "$repo/.worktrees/example-create/.env"
+assert_contains "$repo/.worktrees/example-create/.env" 'APP_KEY=base64:from-example'
+assert_contains "$consumer_log" 'HOOK=bootstrap'
+git -C "$repo" worktree remove -f "$repo/.worktrees/example-create"
+rm -f "$repo/.worktrees/.state/example-create.env"
+
+git -C "$repo" worktree add -q -b example-bootstrap "$repo/.worktrees/example-bootstrap"
+rm -f "$repo/.worktrees/example-bootstrap/.env"
+: > "$consumer_log"
+assert_status 0 run_command bootstrap example-bootstrap
+assert_exists "$repo/.worktrees/example-bootstrap/.env"
+assert_contains "$repo/.worktrees/example-bootstrap/.env" 'APP_KEY=base64:from-example'
+assert_contains "$consumer_log" 'HOOK=bootstrap'
+git -C "$repo" worktree remove -f "$repo/.worktrees/example-bootstrap"
+rm -f "$repo/.worktrees/.state/example-bootstrap.env"
+
+git -C "$repo" worktree add -q -b example-start "$repo/.worktrees/example-start"
+rm -f "$repo/.worktrees/example-start/.env"
+: > "$consumer_log"
+assert_status 0 run_command start example-start
+assert_exists "$repo/.worktrees/example-start/.env"
+assert_contains "$repo/.worktrees/example-start/.env" 'APP_KEY=base64:from-example'
+assert_contains "$consumer_log" 'HOOK=start'
+git -C "$repo" worktree remove -f "$repo/.worktrees/example-start"
+rm -f "$repo/.worktrees/.state/example-start.env"
+
+printf '%s\n' \
+    'PROJECT_NAME=test-project' \
+    'WORKTREE_PORT_PROFILE="http=8080,frontend=5173,database=3306,cache=6379"' \
+    'WORKTREE_PORT_STRIDE=10' \
+    'WORKTREE_ENV_TEMPLATE=.env.template' > "$repo/.template/project.conf"
+
+rm -rf "$repo/.worktree-active" "$consumer_state" "$consumer_log"
 printf '%s\n' feature-x > "$repo/.worktree-active"
-rm -rf "$repo/.worktrees/feature-x/vendor"
-assert_status 0 run_command status
-assert_contains "$command_log" 'ARGS=ps -q laravel.test'
-assert_contains "$command_log" "BIN=$repo/vendor/bin/sail"
-assert_contains "$command_log" "MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"
-expected_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nproject: test-project-feature-x\nurl: http://127.0.0.1:8080\nports: app=8080 vite=5173 db=3306 redis=6379\nstatus: stopped' "$repo")
-assert_eq "$expected_status" "$(run_command status)" 'status prints project, URL, ports, and stopped state'
-
-mkdir -p "$stack_state"
-touch "$stack_state/test-project-feature-x"
-expected_running_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\nproject: test-project-feature-x\nurl: http://127.0.0.1:8080\nports: app=8080 vite=5173 db=3306 redis=6379\nstatus: running' "$repo")
+mkdir -p "$consumer_state"
+: > "$consumer_log"
+expected_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\ninstance: test-project-feature-x\nports: HTTP=8080 FRONTEND=5173 DATABASE=3306 CACHE=6379\nstatus: stopped' "$repo")
+assert_eq "$expected_status" "$(run_command status)" \
+    'status prints instance, ports, and consumer stopped output'
+touch "$consumer_state/test-project-feature-x"
+expected_running_status=$(printf 'active: feature-x\npath: %s/.worktrees/feature-x\nbranch: feature-x\ninstance: test-project-feature-x\nports: HTTP=8080 FRONTEND=5173 DATABASE=3306 CACHE=6379\nstatus: running' "$repo")
 assert_eq "$expected_running_status" "$(run_command status)" \
-    'status detects a running stack without local Sail support files'
-rm -f "$stack_state/test-project-feature-x"
-mkdir -p "$repo/.worktrees/feature-x/vendor/bin"
-cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-x/vendor/bin/sail"
-chmod +x "$repo/.worktrees/feature-x/vendor/bin/sail"
+    'status prints instance, ports, and consumer running output'
+rm -f "$consumer_state/test-project-feature-x"
 
-rm -f "$command_log"
+rm -f "$consumer_log"
 assert_status 0 run_command start feature-x
-assert_contains "$command_log" 'ARGS=up -d --remove-orphans'
+assert_contains "$consumer_log" 'HOOK=start'
+assert_contains "$consumer_log" 'WORKTREE_NAME=feature-x'
 assert_eq feature-x "$(cat "$repo/.worktree-active")" \
     'start preserves active worktree after startup'
 
-rm -f "$command_log"
-printf 'y\n' | assert_status 0 run_command start feature-x --fresh
-assert_contains "$command_log" 'ARGS=artisan migrate:fresh --seed'
+rm -f "$consumer_log"
+assert_status 0 run_command start feature-x --fresh
+assert_contains "$consumer_log" 'HOOK=start'
+assert_contains "$consumer_log" 'HOOK=reset'
 
-rm -f "$command_log"
+rm -f "$consumer_log"
 assert_status 0 run_command stop feature-x
-assert_contains "$command_log" 'ARGS=down --remove-orphans'
-assert_not_contains "$command_log" '--volumes'
+assert_contains "$consumer_log" 'HOOK=stop'
+assert_not_exists "$consumer_state/test-project-feature-x"
 assert_eq "$expected_status" "$(run_command status)" 'status reports a stopped stack'
 
-rm -f "$command_log"
+rm -f "$consumer_log"
 assert_failure_contains 'worktree not found' run_command switch missing
-assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_not_contains "$consumer_log" 'HOOK=stop'
 assert_eq feature-x "$(<"$repo/.worktree-active")" \
     'failed target validation preserves active worktree'
 
-rm -rf "$command_log" "$stack_state"
-rm -rf "$repo/.worktrees/feature-x/vendor"
-export FAIL_UP_PATH="$repo/.worktrees/feature-y"
+rm -rf "$consumer_state"
+mkdir -p "$consumer_state"
+touch "$consumer_state/test-project-feature-x"
+touch "$repo/.consumer-fail-start"
 assert_failure_contains 'feature-y' run_command switch feature-y
-unset FAIL_UP_PATH
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-y BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=up -d --remove-orphans"
-assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=down --remove-orphans"
+rm -f "$repo/.consumer-fail-start"
+assert_contains "$consumer_log" 'HOOK=start'
+assert_contains "$consumer_log" 'WORKTREE_NAME=feature-y'
+assert_not_contains "$consumer_log" 'HOOK=stop'
+assert_exists "$consumer_state/test-project-feature-x"
 assert_eq feature-x "$(<"$repo/.worktree-active")" \
     'failed target startup preserves active worktree'
 
-rm -rf "$command_log" "$stack_state"
-mkdir -p "$stack_state"
-touch "$stack_state/test-project-feature-x"
+rm -rf "$consumer_state"
+mkdir -p "$consumer_state"
+touch "$consumer_state/test-project-feature-x"
+: > "$consumer_log"
 assert_status 0 run_command switch feature-y
 assert_eq feature-y "$(cat "$repo/.worktree-active")" \
     'successful switch writes target active worktree'
-if ! grep -q 'ARGS=down --remove-orphans' "$command_log"; then
+if ! grep -q 'HOOK=stop' "$consumer_log"; then
     printf 'ok - switch keeps the previous stack running\n'
 else
     printf 'not ok - switch stopped the previous stack\n'
     failures=$((failures + 1))
 fi
+assert_exists "$consumer_state/test-project-feature-x"
+assert_exists "$consumer_state/test-project-feature-y"
 
-rm -rf "$command_log" "$stack_state"
-mkdir -p "$stack_state"
-assert_failure_contains 'already exists' run_command create feature-x
-assert_failure_contains 'branch does not exist' run_command create missing-branch --existing
+rm -f "$consumer_log"
+assert_status 0 run_command reset feature-y
+assert_contains "$consumer_log" 'HOOK=reset'
 
-printf '%s\n' feature-x > "$repo/.worktree-active"
-printf '8080\n' > "$busy_ports"
-rm -f "$command_log"
-assert_status 0 run_command create port-allocation-fallback
-assert_contains "$command_log" 'ARGS=up -d --remove-orphans'
-assert_status 0 load_worktree_state port-allocation-fallback
-case "$WORKTREE_STATE_APP_PORT" in
-    8080)
-        printf 'not ok - allocator reused a busy HTTP port\n'
+rm -f "$consumer_log"
+assert_status 0 run_command reset
+assert_contains "$consumer_log" 'HOOK=reset'
+
+rm -f "$consumer_log"
+touch "$repo/.consumer-no-reset"
+if output=$(run_command reset feature-y 2>&1); then
+    reset_exit=0
+else
+    reset_exit=$?
+fi
+rm -f "$repo/.consumer-no-reset"
+assert_eq 2 "$reset_exit" 'unsupported reset hook exits 2'
+assert_contains "$consumer_log" 'HOOK=reset'
+case "$output" in
+    *'docs/runtime-hooks.md'*)
+        printf 'ok - unsupported reset diagnostic points to the hook contract\n' ;;
+    *)
+        printf 'not ok - unsupported reset diagnostic missing contract\n'
         failures=$((failures + 1))
         ;;
-    *) printf 'ok - allocator skipped the busy HTTP port\n' ;;
 esac
-git -C "$repo" worktree remove -f "$repo/.worktrees/port-allocation-fallback"
-rm -f "$repo/.worktrees/.state/port-allocation-fallback.env"
-printf '%s\n' feature-x > "$repo/.worktree-active"
-: > "$busy_ports"
 
-for missing_bootstrap_path in \
-    "$repo/vendor/bin/sail" \
-    "$repo/vendor/laravel/sail/runtimes/8.5" \
-    "$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh"; do
-    missing_bootstrap_name=$(basename "$missing_bootstrap_path")
-    mv "$missing_bootstrap_path" "$missing_bootstrap_path.missing"
-    : > "$command_log"
-    touch "$stack_state/test-project-feature-x"
-    case "$missing_bootstrap_name" in
-        sail) missing_bootstrap_error='Haupt-Checkout benötigt eine Sail-Installation' ;;
-        8.5) missing_bootstrap_error='Sail-Runtime fehlt' ;;
-        create-testing-database.sh) missing_bootstrap_error='Sail-Bootstrap-Datei fehlt' ;;
-    esac
-    assert_failure_contains "$missing_bootstrap_error" \
-        run_command create "missing-$missing_bootstrap_name"
-    assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
-    assert_eq feature-x "$(<"$repo/.worktree-active")" \
-        "missing $missing_bootstrap_name preserves active state"
-    assert_not_exists "$repo/.worktrees/missing-$missing_bootstrap_name"
-    mv "$missing_bootstrap_path.missing" "$missing_bootstrap_path"
-done
-
-rm -rf "$stack_state"
-mkdir -p "$stack_state"
-run_command create feature-z-unique
-assert_contains "$command_log" 'ARGS=up -d --remove-orphans'
-assert_contains "$command_log" 'ARGS=composer install'
-assert_contains "$command_log" 'ARGS=npm install'
-assert_contains "$command_log" 'ARGS=artisan key:generate'
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=up -d --remove-orphans"
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=composer install"
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/.worktrees/feature-z-unique/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE=Dockerfile MYSQL_INIT= ARGS=npm install"
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/.worktrees/feature-z-unique/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE=Dockerfile MYSQL_INIT= ARGS=artisan key:generate"
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-z-unique BIN=$repo/.worktrees/feature-z-unique/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE= MYSQL_INIT= ARGS=run sh -lc"
-assert_not_contains "$command_log" 'migrate:fresh'
-assert_eq feature-z-unique "$(<"$repo/.worktree-active")" \
-    'successful create writes active state'
-up_line=$(awk '/ARGS=up -d --remove-orphans/ { print NR; exit }' "$command_log")
-composer_line=$(awk '/ARGS=composer install/ { print NR; exit }' "$command_log")
-npm_line=$(awk '/ARGS=npm install/ { print NR; exit }' "$command_log")
-key_line=$(awk '/ARGS=artisan key:generate/ { print NR; exit }' "$command_log")
-frontend_line=$(awk '/ARGS=run sh -lc/ { print NR; exit }' "$command_log")
-if [ "$up_line" -lt "$composer_line" ] && [ "$composer_line" -lt "$npm_line" ] \
-    && [ "$npm_line" -lt "$key_line" ] && [ "$key_line" -lt "$frontend_line" ]; then
-    printf 'ok - create bootstrap steps run in order\n'
+touch "$repo/.consumer-no-reset"
+if output=$(run_command start feature-y --fresh 2>&1); then
+    reset_exit=0
 else
-    printf 'not ok - create bootstrap steps run in order\n'
-    failures=$((failures + 1))
+    reset_exit=$?
 fi
+assert_eq 2 "$reset_exit" 'start --fresh preserves unsupported reset exit 2'
+case "$output" in
+    *'docs/runtime-hooks.md'*)
+        printf 'ok - start --fresh unsupported reset diagnostic points to the hook contract\n' ;;
+    *)
+        printf 'not ok - start --fresh unsupported reset diagnostic missing contract\n'
+        failures=$((failures + 1))
+        ;;
+esac
 
-assert_failure_contains 'invalid worktree name' run_command create '../escape'
-assert_eq feature-z-unique "$(<"$repo/.worktree-active")" \
-    'invalid create name preserves active state'
+if output=$(run_command switch feature-x --fresh 2>&1); then
+    reset_exit=0
+else
+    reset_exit=$?
+fi
+rm -f "$repo/.consumer-no-reset"
+assert_eq 2 "$reset_exit" 'switch --fresh preserves unsupported reset exit 2'
+case "$output" in
+    *'docs/runtime-hooks.md'*)
+        printf 'ok - switch --fresh unsupported reset diagnostic points to the hook contract\n' ;;
+    *)
+        printf 'not ok - switch --fresh unsupported reset diagnostic missing contract\n'
+        failures=$((failures + 1))
+        ;;
+esac
 
-: > "$command_log"
-run_command create existing-source --existing
-assert_eq existing-source "$(<"$repo/.worktree-active")" \
-    'successful create existing branch writes active state'
-assert_not_contains "$command_log" 'ARGS=artisan key:generate'
-
-remove_test_worktree() {
-    git -C "$repo" worktree remove -f "$repo/.worktrees/$1" >/dev/null 2>&1 || true
-}
-
-bootstrap_fixture() {
-    local name=$1
-    git -C "$repo" worktree add -q -b "$name" "$repo/.worktrees/$name"
-    printf 'APP_KEY=\n' > "$repo/.worktrees/$name/.env"
-    cp "$repo/compose.yaml" "$repo/.worktrees/$name/compose.yaml"
-}
-
-rm -rf "$command_log" "$stack_state" "$repo/.worktree-active"
-mkdir -p "$stack_state"
-
-for failure_step in up composer npm key; do
-    failure_name="create-$failure_step-failure"
-    printf '%s\n' feature-x > "$repo/.worktree-active"
-    rm -f "$command_log"
-    rm -rf "$stack_state"
-    mkdir -p "$stack_state"
-    touch "$stack_state/test-project-feature-x"
-    export FAIL_BOOTSTRAP_STEP=$failure_step
-    assert_failure_contains 'Fehler bei Schritt:' run_command create "$failure_name"
-    unset FAIL_BOOTSTRAP_STEP
-    assert_eq feature-x "$(<"$repo/.worktree-active")" \
-        'failed create preserves the previous active Worktree'
-    assert_exists "$repo/.worktrees/$failure_name"
-    assert_exists "$repo/.worktrees/.state/$failure_name.env"
-    assert_exists "$stack_state/test-project-feature-x"
-    if [ "$failure_step" != up ]; then
-        load_worktree_state "$failure_name"
-        failure_project="$WORKTREE_STATE_COMPOSE_PROJECT_NAME"
-        assert_exists "$stack_state/$failure_project"
-        failure_path="$repo/.worktrees/$failure_name"
-        failure_head_inode=$(stat -c %i "$(git -C "$failure_path" rev-parse --git-dir)/HEAD")
-        assert_status 0 run_command bootstrap "$failure_name"
-        assert_exists "$failure_path"
-        failure_head_inode_after=$(stat -c %i "$(git -C "$failure_path" rev-parse --git-dir)/HEAD")
-        assert_eq "$failure_head_inode" "$failure_head_inode_after" \
-            "$failure_name retry preserves linked Worktree Git metadata"
-    else
-        assert_not_exists "$stack_state/test-project-$failure_name"
-    fi
-    remove_test_worktree "$failure_name"
-done
-
-rm -rf "$command_log" "$stack_state"
-mkdir -p "$stack_state"
-touch "$stack_state/test-project-feature-x"
+rm -rf "$repo/.worktree-active" "$consumer_state"
+mkdir -p "$consumer_state"
 printf '%s\n' feature-x > "$repo/.worktree-active"
-: > "$command_log"
-assert_status 0 run_command bootstrap feature-y
-assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x"
-assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=down --remove-orphans"
-assert_exists "$stack_state/test-project-feature-x"
-assert_eq feature-x "$(<"$repo/.worktree-active")" \
-    'explicit bootstrap preserves active selection'
-
-rm -f "$command_log"
-rm -rf "$stack_state"
-mkdir -p "$stack_state"
-touch "$stack_state/test-project-feature-x"
-printf '%s\n' feature-x > "$repo/.worktree-active"
-export FAIL_BOOTSTRAP_STEP=up
-assert_failure_contains 'Fehler bei Schritt: Stack starten' \
-    run_command bootstrap feature-y
-unset FAIL_BOOTSTRAP_STEP
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/feature-y"
-assert_contains "$command_log" 'ARGS=down --remove-orphans'
-assert_not_contains "$command_log" "SOURCE=$repo/.worktrees/feature-x"
-assert_exists "$stack_state/test-project-feature-x"
-assert_eq feature-x "$(<"$repo/.worktree-active")" \
-    'failed target start preserves active selection'
-rm -rf "$repo/.worktrees/feature-y/vendor"
-mkdir -p "$repo/.worktrees/feature-y/vendor/bin"
-cp "$repo/vendor/bin/sail" "$repo/.worktrees/feature-y/vendor/bin/sail"
-chmod +x "$repo/.worktrees/feature-y/vendor/bin/sail"
-
-for failure_step in up composer npm key; do
-    failure_name="bootstrap-$failure_step-failure"
-    bootstrap_fixture "$failure_name"
-    printf '%s\n' feature-x > "$repo/.worktree-active"
-    rm -f "$command_log"
-    rm -rf "$stack_state"
-    mkdir -p "$stack_state"
-    touch "$stack_state/test-project-feature-x"
-    export FAIL_BOOTSTRAP_STEP=$failure_step
-    assert_failure_contains 'Fehler bei Schritt:' run_command bootstrap "$failure_name"
-    load_worktree_state "$failure_name"
-    failure_project="$WORKTREE_STATE_COMPOSE_PROJECT_NAME"
-    case "$failure_step" in
-        up)
-            assert_contains "$command_log" "SOURCE=$repo/.worktrees/$failure_name"
-            assert_contains "$command_log" 'ARGS=down --remove-orphans'
-            assert_not_exists "$stack_state/$failure_project"
-            ;;
-        composer|npm|key)
-            assert_contains "$command_log" 'ARGS=up -d --remove-orphans'
-            assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
-            assert_exists "$stack_state/$failure_project"
-            ;;
-    esac
-    assert_exists "$stack_state/test-project-feature-x"
-    assert_eq feature-x "$(<"$repo/.worktree-active")" \
-        "$failure_name preserves the active worktree"
-    unset FAIL_BOOTSTRAP_STEP
-    if [ "$failure_step" = up ]; then
-        remove_test_worktree "$failure_name"
-    fi
-done
-
-for failure_step in composer npm key; do
-    failure_name="bootstrap-$failure_step-failure"
-    before_composer_calls=$(mock_call_count_for_test composer)
-    before_npm_calls=$(mock_call_count_for_test npm)
-    before_key_calls=$(mock_call_count_for_test key)
-    assert_status 0 run_command bootstrap "$failure_name"
-    case "$failure_step" in
-        composer)
-            assert_eq "$((before_composer_calls + 1))" "$(mock_call_count_for_test composer)" \
-                "$failure_name retries Composer"
-            assert_eq "$((before_npm_calls + 1))" "$(mock_call_count_for_test npm)" \
-                "$failure_name runs npm after Composer"
-            assert_eq "$((before_key_calls + 1))" "$(mock_call_count_for_test key)" \
-                "$failure_name runs key generation after npm"
-            ;;
-        npm)
-            assert_eq "$before_composer_calls" "$(mock_call_count_for_test composer)" \
-                "$failure_name skips Composer on retry"
-            assert_eq "$((before_npm_calls + 1))" "$(mock_call_count_for_test npm)" \
-                "$failure_name retries npm"
-            assert_eq "$((before_key_calls + 1))" "$(mock_call_count_for_test key)" \
-                "$failure_name runs key generation after npm"
-            ;;
-        key)
-            assert_eq "$before_composer_calls" "$(mock_call_count_for_test composer)" \
-                "$failure_name skips Composer on retry"
-            assert_eq "$before_npm_calls" "$(mock_call_count_for_test npm)" \
-                "$failure_name skips npm on retry"
-            assert_eq "$((before_key_calls + 1))" "$(mock_call_count_for_test key)" \
-                "$failure_name retries key generation"
-            ;;
-    esac
-    first_composer_calls=$(mock_call_count_for_test composer)
-    first_npm_calls=$(mock_call_count_for_test npm)
-    first_key_calls=$(mock_call_count_for_test key)
-    assert_status 0 run_command bootstrap "$failure_name"
-    assert_eq "$first_composer_calls" "$(mock_call_count_for_test composer)" \
-        "$failure_name does not rerun Composer after valid artifacts"
-    assert_eq "$first_npm_calls" "$(mock_call_count_for_test npm)" \
-        "$failure_name does not rerun npm after valid artifacts"
-    assert_eq "$first_key_calls" "$(mock_call_count_for_test key)" \
-        "$failure_name does not rerun key generation after a valid APP_KEY"
-    remove_test_worktree "$failure_name"
-done
-
-bootstrap_fixture partial-composer-failure
-export PARTIAL_COMPOSER_INSTALL=1
-assert_failure_contains 'Sail nach Composer-Installation nicht gefunden' \
-    run_command bootstrap partial-composer-failure
-assert_exists "$stack_state/test-project-partial-composer-failure"
-assert_not_executable "$repo/.worktrees/partial-composer-failure/vendor/bin/sail"
-: > "$command_log"
-assert_status 0 run_command status partial-composer-failure
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/partial-composer-failure BIN=$repo/vendor/bin/sail"
-assert_contains "$command_log" "ARGS=ps -q laravel.test PROJECT=test-project-partial-composer-failure"
-: > "$command_log"
-assert_status 0 run_command stop partial-composer-failure
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/partial-composer-failure BIN=$repo/vendor/bin/sail BUILD_CONTEXT= BUILD_DOCKERFILE= MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=down --remove-orphans PROJECT=test-project-partial-composer-failure"
-assert_not_exists "$stack_state/test-project-partial-composer-failure"
-unset PARTIAL_COMPOSER_INSTALL
-: > "$command_log"
-assert_status 0 run_command bootstrap partial-composer-failure
-assert_contains "$command_log" "SOURCE=$repo/.worktrees/partial-composer-failure BIN=$repo/vendor/bin/sail BUILD_CONTEXT=$repo/vendor/laravel/sail/runtimes/8.5 BUILD_DOCKERFILE=Dockerfile MYSQL_INIT=$repo/vendor/laravel/sail/database/mysql/create-testing-database.sh ARGS=up -d --remove-orphans PROJECT=test-project-partial-composer-failure"
-assert_executable "$repo/.worktrees/partial-composer-failure/vendor/bin/sail"
-remove_test_worktree partial-composer-failure
-
-rm -rf "$command_log" "$stack_state"
-printf '%s\n' feature-x > "$repo/.worktree-active"
-mkdir -p "$stack_state"
-touch "$stack_state/test-project-feature-x"
-rm -f "$repo/.worktrees/feature-y/.env"
-: > "$command_log"
-assert_failure_contains '.env fehlt' run_command switch feature-y
-assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
-printf 'APP_KEY=base64:feature-y\n' > "$repo/.worktrees/feature-y/.env"
-
-rm -f "$repo/.worktrees/feature-y/compose.yaml" \
-    "$repo/.worktrees/feature-y/compose.yml" \
-    "$repo/.worktrees/feature-y/docker-compose.yml" \
-    "$repo/.worktrees/feature-y/docker-compose.yaml"
-: > "$command_log"
-assert_failure_contains 'keine unterstützte Compose-Datei' run_command switch feature-y
-assert_failure_contains 'keine unterstützte Compose-Datei' run_command bootstrap feature-y
-assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
-cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
-
-for compose_name in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
-    if [ "$compose_name" != compose.yaml ]; then
-        mv "$repo/.worktrees/feature-y/compose.yaml" "$repo/.worktrees/feature-y/$compose_name"
-    fi
-    assert_status 0 validate_worktree_prerequisites "$repo/.worktrees/feature-y"
-    if [ "$compose_name" != compose.yaml ]; then
-        mv "$repo/.worktrees/feature-y/$compose_name" "$repo/.worktrees/feature-y/compose.yaml"
-    fi
-done
-
-rm -f "$repo/.worktrees/feature-y/compose.yaml" \
-    "$repo/.worktrees/feature-y/compose.yml" \
-    "$repo/.worktrees/feature-y/docker-compose.yml" \
-    "$repo/.worktrees/feature-y/docker-compose.yaml"
-: > "$command_log"
-assert_failure_contains 'keine unterstützte Compose-Datei' run_command start feature-y
-assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
-cp "$repo/compose.yaml" "$repo/.worktrees/feature-y/compose.yaml"
-
-mkdir -p "$repo/.worktrees/feature-y/vendor/laravel/sail"
-: > "$command_log"
-assert_failure_contains 'Sail-Runtime fehlt' run_command start feature-y
-assert_not_contains "$command_log" 'ARGS=up -d --remove-orphans'
-rm -rf "$repo/.worktrees/feature-y/vendor/laravel/sail"
-
-mv "$repo/vendor/bin/sail" "$repo/vendor/bin/sail.missing"
-assert_failure_contains 'Haupt-Checkout benötigt eine Sail-Installation' run_command switch feature-y
-assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
-mv "$repo/vendor/bin/sail.missing" "$repo/vendor/bin/sail"
-
-mv "$repo/vendor/laravel/sail/runtimes/8.5" "$repo/vendor/laravel/sail/runtimes/8.5.missing"
-assert_failure_contains 'Sail-Runtime fehlt' run_command switch feature-y
-assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
-mv "$repo/vendor/laravel/sail/runtimes/8.5.missing" "$repo/vendor/laravel/sail/runtimes/8.5"
-
-rm -rf "$command_log" "$stack_state"
-printf '%s\n' feature-x > "$repo/.worktree-active"
-mkdir -p "$stack_state"
-assert_failure_contains_input n 'Datenbank-Reset abgebrochen' run_command switch feature-y --fresh
-assert_eq feature-x "$(<"$repo/.worktree-active")" \
-    'fresh refusal preserves active state'
-
-rm -rf "$command_log" "$stack_state"
-mkdir -p "$stack_state"
-export FAIL_FRESH=1
-assert_failure_contains_input y 'Ziel-Stack läuft, aber der Datenbank-Reset wurde nicht abgeschlossen.' \
-    run_command switch feature-y --fresh
-unset FAIL_FRESH
-assert_eq feature-x "$(<"$repo/.worktree-active")" \
-    'fresh migration failure preserves active state'
-assert_contains "$command_log" 'ARGS=artisan migrate:fresh --seed'
-
-rm -rf "$command_log" "$repo/.worktree-active" "$stack_state"
-mkdir -p "$stack_state"
-touch "$stack_state/test-project-feature-y"
+touch "$consumer_state/test-project-feature-y"
 printf '8080\n' > "$busy_ports"
+: > "$consumer_log"
 assert_status 0 run_command switch feature-y
-assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_not_contains "$consumer_log" 'HOOK=stop'
 assert_eq feature-y "$(<"$repo/.worktree-active")" \
     'switch starts target without active state'
 : > "$busy_ports"
 
 printf '%s\n' '../invalid' > "$repo/.worktree-active"
-rm -rf "$command_log" "$stack_state"
-mkdir -p "$stack_state"
-touch "$stack_state/test-project-feature-y"
+rm -f "$consumer_log"
+mkdir -p "$consumer_state"
+touch "$consumer_state/test-project-feature-y"
 assert_status 0 run_command switch feature-y
-assert_not_contains "$command_log" 'ARGS=down --remove-orphans'
+assert_not_contains "$consumer_log" 'HOOK=stop'
 assert_eq feature-y "$(<"$repo/.worktree-active")" \
     'switch ignores stale active pointer for explicit target'
 
@@ -1060,14 +933,41 @@ printf '%s\n' removed-worktree > "$repo/.worktree-active"
 assert_failure_contains 'stale active worktree' run_command status
 assert_status 0 run_command status feature-y
 
+git -C "$repo" worktree add -q -b a-status-fail "$repo/.worktrees/a-status-fail"
+printf 'APP_KEY=base64:status-fail\n' > "$repo/.worktrees/a-status-fail/.env"
+assert_status 0 ensure_worktree_state a-status-fail "$repo/.worktrees/a-status-fail"
+cat > "$repo/.worktrees/a-status-fail/bin/consumer" <<'STATUS_FAIL_EOF'
+#!/bin/bash
+set -euo pipefail
+printf 'consumer status failed\n' >&2
+exit 1
+STATUS_FAIL_EOF
+chmod +x "$repo/.worktrees/a-status-fail/bin/consumer"
+assert_output_contains 'active: feature-x' run_command status --all
+assert_output_contains 'active: feature-y' run_command status --all
+assert_output_contains 'active: a-status-fail' run_command status --all
+assert_output_contains 'consumer status failed' run_command status --all
+assert_status 1 run_command status a-status-fail
+git -C "$repo" worktree remove -f "$repo/.worktrees/a-status-fail"
+rm -f "$state_dir/a-status-fail.env"
+
+git -C "$repo" worktree add -q -b block-target "$repo/.worktrees/block-target"
+printf 'APP_KEY=base64:block-target\n' > "$repo/.worktrees/block-target/.env"
+printf '%s\n' 'junk' > "$state_dir/bad name.env"
+assert_failure_contains 'bad name.env' \
+    ensure_worktree_state block-target "$repo/.worktrees/block-target"
+rm -f "$state_dir/bad name.env"
+git -C "$repo" worktree remove -f "$repo/.worktrees/block-target"
+rm -f "$state_dir/block-target.env"
+
 mkdir -p "$repo/.worktrees/.state"
 printf '%s\n' \
     'WORKTREE_NAME=orphan' \
-    'COMPOSE_PROJECT_NAME=test-project-orphan' \
-    'APP_PORT=8120' \
-    'VITE_PORT=5213' \
-    'FORWARD_DB_PORT=3346' \
-    'FORWARD_REDIS_PORT=6419' \
+    'WORKTREE_INSTANCE_NAME=test-project-orphan' \
+    'WORKTREE_PORT_HTTP=8120' \
+    'WORKTREE_PORT_FRONTEND=5213' \
+    'WORKTREE_PORT_DATABASE=3346' \
+    'WORKTREE_PORT_CACHE=6419' \
     > "$repo/.worktrees/.state/orphan.env"
 assert_output_contains 'orphan' run_command status --all
 assert_status 0 run_command prune
@@ -1076,11 +976,11 @@ assert_not_exists "$repo/.worktrees/.state/orphan.env"
 git -C "$repo" worktree add -q -b registered-orphan "$repo/.worktrees/registered-orphan"
 printf '%s\n' \
     'WORKTREE_NAME=registered-orphan' \
-    'COMPOSE_PROJECT_NAME=test-project-registered-orphan' \
-    'APP_PORT=8130' \
-    'VITE_PORT=5223' \
-    'FORWARD_DB_PORT=3356' \
-    'FORWARD_REDIS_PORT=6429' \
+    'WORKTREE_INSTANCE_NAME=test-project-registered-orphan' \
+    'WORKTREE_PORT_HTTP=8130' \
+    'WORKTREE_PORT_FRONTEND=5223' \
+    'WORKTREE_PORT_DATABASE=3356' \
+    'WORKTREE_PORT_CACHE=6429' \
     > "$repo/.worktrees/.state/registered-orphan.env"
 rm -rf "$repo/.worktrees/registered-orphan"
 assert_status 0 run_command prune
@@ -1095,6 +995,7 @@ rm -f "$repo/.worktrees/.state/registered-orphan.env"
 
 assert_failure_contains 'Verwendung:' run_command create feature-z --fresh
 assert_failure_contains 'Verwendung:' run_command status feature-y --all
+assert_failure_contains 'Verwendung:' run_command reset feature-y --fresh
 
 if [ "$failures" -ne 0 ]; then
     printf '%s test(s) failed\n' "$failures"

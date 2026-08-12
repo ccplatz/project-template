@@ -2,6 +2,27 @@
 
 All notable changes to this template are documented here.
 
+## [0.4.0] - 2026-08-12
+
+### Changed
+
+- Make Worktree orchestration stack-independent through the consumer-owned
+  `bin/consumer` lifecycle adapter.
+- Replace fixed Laravel/Sail port variables with consumer-defined named port
+  profiles and generic `WORKTREE_*` context variables.
+- Move Docker container management out of the template core; consumers own their
+  runtime services and stack-specific hooks.
+- Add synchronized runtime-hook documentation and the consumer adapter skill.
+
+### Migration
+
+- Add `bin/consumer bootstrap`, `start`, and `stop` to each consumer. Implement
+  optional `status` and `reset` hooks where applicable.
+- Configure `WORKTREE_PORT_PROFILE`, `WORKTREE_PORT_STRIDE`, and
+  `WORKTREE_ENV_TEMPLATE` in `.template/project.conf`.
+- Synchronize template-owned files before using the new generic Worktree
+  lifecycle in an existing consumer.
+
 ## [0.3.2] - 2026-08-11
 
 ### Added
