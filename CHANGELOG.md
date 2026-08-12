@@ -2,6 +2,13 @@
 
 All notable changes to this template are documented here.
 
+## [0.4.1] - 2026-08-12
+
+### Fixed
+
+- Port availability checks no longer silently report every port as free when
+  `nc` is missing; the probe falls back to a bash `/dev/tcp` connection check.
+
 ## [0.4.0] - 2026-08-12
 
 ### Changed

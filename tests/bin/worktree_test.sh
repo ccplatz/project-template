@@ -476,6 +476,34 @@ assert_not_contains "$repo/.worktrees/feature-y/.env" 'VITE_PORT='
 assert_not_contains "$repo/.worktrees/feature-y/.env" 'FORWARD_DB_PORT='
 assert_not_contains "$repo/.worktrees/feature-y/.env" 'FORWARD_REDIS_PORT='
 
+# --- Port probe fallback without nc: bash /dev/tcp ---
+if command -v python3 >/dev/null 2>&1; then
+    probe_out="$repo/probe.out"
+    python3 -c 'import socket, time
+s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)
+f = socket.socket(); f.bind(("127.0.0.1", 0))
+print(s.getsockname()[1], f.getsockname()[1], flush=True)
+time.sleep(30)' > "$probe_out" 2>/dev/null &
+    probe_pid=$!
+    for _ in 1 2 3 4 5; do
+        [ -s "$probe_out" ] && break
+        sleep 0.2
+    done
+    probe_busy=
+    probe_free=
+    IFS=' ' read -r probe_busy probe_free < "$probe_out" || true
+    PATH="$old_path"
+    if [ -n "$probe_busy" ] && [ -n "$probe_free" ]; then
+        assert_status 1 port_is_available "$probe_busy"
+        assert_status 0 port_is_available "$probe_free"
+    else
+        printf 'not ok - python3 probe did not bind its sockets\n' >&2
+        failures=$((failures + 1))
+    fi
+    kill "$probe_pid" 2>/dev/null || true
+    PATH="$repo/bin:$old_path"
+fi
+
 printf '%s\n' \
     'WORKTREE_NAME=cross-member' \
     'WORKTREE_INSTANCE_NAME=test-project-cross-member' \

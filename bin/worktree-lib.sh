@@ -401,10 +401,14 @@ run_git() {
 }
 
 port_is_available() {
-    if ! command -v nc >/dev/null 2>&1; then
-        return 0
+    if command -v nc >/dev/null 2>&1; then
+        ! nc -z 127.0.0.1 "$1" >/dev/null 2>&1
+        return
     fi
-    ! nc -z 127.0.0.1 "$1" >/dev/null 2>&1
+    if (: 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; then
+        return 1
+    fi
+    return 0
 }
 
 die() {
