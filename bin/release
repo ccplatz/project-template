@@ -61,7 +61,9 @@ mv "$root/CHANGELOG.md.tmp" "$root/CHANGELOG.md"
 printf '%s\n' "$new_version" > "$root/VERSION"
 
 escaped_old=${old_version//./\\.}
-sed -i "s/$escaped_old/$new_version/g" "$root"/tests/bin/*.sh
+# Nur template_sync_test.sh assertiert die echte Repo-VERSION; die Fixtures in
+# release_test.sh bleiben absolut und werden deshalb nicht synchronisiert.
+sed -i "s/$escaped_old/$new_version/g" "$root/tests/bin/template_sync_test.sh"
 
 git -C "$root" add VERSION CHANGELOG.md tests/bin
 git -C "$root" commit -q -m "release: bump template to $new_version"
