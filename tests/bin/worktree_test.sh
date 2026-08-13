@@ -339,6 +339,7 @@ assert_failure_contains 'invalid worktree name' resolve_worktree 'bad name'
 assert_failure_contains 'invalid worktree name' resolve_worktree "bad\$name"
 assert_failure_contains 'invalid worktree name' resolve_worktree .hidden
 assert_failure_contains 'worktree not found' resolve_worktree missing
+# shellcheck disable=SC2218 # sourced write_active_worktree from worktree-lib.sh is active here; the local test double below replaces it for later assertions
 write_active_worktree feature-x
 assert_eq feature-x "$(cat "$repo/.worktree-active")" \
     'write the active worktree state file'
@@ -716,6 +717,7 @@ rm -f "$state_dir/duplicate-state.env"
 PROJECT_NAME=Bad.Name
 assert_failure_contains 'invalid worktree instance name' \
     ensure_worktree_state bad-project "$repo/.worktrees/feature-x"
+# shellcheck disable=SC2034 # read by ensure_worktree_state and worktree-lib.sh functions during later assertions
 PROJECT_NAME=test-project
 assert_not_exists "$repo/.worktrees/.state/bad-project.env"
 assert_not_exists "$state_dir/.allocation-lock"

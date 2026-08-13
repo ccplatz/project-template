@@ -300,7 +300,7 @@ assert_contains 'Duplicate manifest path' "$duplicate_output" \
     && printf 'ok - duplicate manifest paths do not write a lock\n' \
     || { printf 'not ok - duplicate manifest paths wrote a lock\n' >&2; failures=$((failures + 1)); }
 
-    > "$template/template-manifest.tsv"
+    : > "$template/template-manifest.tsv"
 git -C "$template" add template-manifest.tsv
 git -C "$template" commit -q -m 'restore manifest after duplicate-path test'
 

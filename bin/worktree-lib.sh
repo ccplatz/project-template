@@ -215,7 +215,7 @@ load_worktree_state() {
     while IFS='=' read -r profile_name profile_base; do
         port_key=WORKTREE_PORT_${profile_name^^}
         printf -v "$port_key" '%s' "${state_ports[$profile_name]}"
-        export "$port_key"
+        export "${port_key?}"
     done < <(worktree_profile_entries)
     WORKTREE_NAME=$name
     WORKTREE_INSTANCE_NAME=$state_instance_name
@@ -238,10 +238,9 @@ worktree_state_lock_dir() {
 acquire_worktree_state_lock() {
     local lock_dir
     local pid
-    local attempt
     lock_dir=$(worktree_state_lock_dir)
     mkdir -p "$(dirname "$lock_dir")"
-    for attempt in 1 2; do
+    for _ in 1 2; do
         if mkdir "$lock_dir" 2>/dev/null; then
             printf '%s\n' "$$" > "$lock_dir/pid"
             return 0

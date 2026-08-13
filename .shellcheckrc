@@ -1,2 +1,5 @@
 shell=bash
 external-sources=true
+# Info-level findings below are intentional patterns (test fixtures with
+# unexpanded shell syntax, single-line test assertions, retry loops):
+disable=SC2015,SC2016,SC2086,SC2094,SC2251

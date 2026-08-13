@@ -2,6 +2,16 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Fix all ShellCheck error- and warning-level findings in `bin/` and `tests/bin/`
+  (`export "${port_key?}"`, retry loop without unused variable, `: >` truncation,
+  SC2218/SC2034 false positives documented with disable directives).
+- Configure `.shellcheckrc` to disable intentional info-level patterns
+  (SC2015, SC2016, SC2086, SC2094, SC2251) so ShellCheck passes cleanly.
+
 ## [0.4.6] - 2026-08-13
 
 ### Fixed
