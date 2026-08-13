@@ -2,6 +2,18 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Make `tests/bin/release_test.sh` executable so the CI workflow can run it.
+
+### Added
+
+- GitHub Actions CI workflow (`.github/workflows/ci.yml`) running ShellCheck,
+  `bin/guardrails-check`, and all shell test suites on push to `main` and pull
+  requests.
+
 ## [0.4.5] - 2026-08-13
 
 ### Changed
