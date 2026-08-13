@@ -112,8 +112,9 @@ Human Gate — er wird nie automatisch oder stillschweigend ausgelöst:
    wird kein Release erstellt.
 3. **Nach Freigabe:** `./bin/release <patch|minor|major>` ausführen. Das
    Skript bumpst `VERSION`, wandelt die `[Unreleased]`-Sektion in
-   `## [X.Y.Z] - <Datum>` um, synchronisiert Versionsreferenzen in `tests/bin/`,
-   committet (`release: bump template to X.Y.Z`), taggt annotiert (`vX.Y.Z`)
+   `## [X.Y.Z] - <Datum>` um, synchronisiert die Versionsreferenz in
+   `tests/bin/template_sync_test.sh`, committet
+   (`release: bump template to X.Y.Z`), taggt annotiert (`vX.Y.Z`)
    und prüft die Konsistenz mit `bin/template-release-check`.
 4. **Push (durch den Benutzer):** `git push --tags`.
 
