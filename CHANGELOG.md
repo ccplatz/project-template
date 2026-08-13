@@ -2,7 +2,7 @@
 
 All notable changes to this template are documented here.
 
-## [Unreleased]
+## [0.4.6] - 2026-08-13
 
 ### Fixed
 
