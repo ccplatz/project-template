@@ -2,6 +2,22 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- `bin/release` prüft die Konsistenz vor dem Taggen und setzt den
+  Release-Commit bei einem Fehler zurück; der Tag wird erst danach erstellt.
+- Das Unreleased-Gate in `bin/release` verwendet exakten Zeilenabgleich.
+- Die Dirty-Tree-Prüfung in `bin/release` erkennt auch untracked Dateien.
+- Der Versions-Sync in `bin/release` ist auf `tests/bin/template_sync_test.sh`
+  begrenzt, damit die Fixtures in `tests/bin/release_test.sh` stabil bleiben.
+
+### Added
+
+- Tests für `bin/release` für Rollback, `major`-Bump, VERSION-Format und
+  untracked-Datei-Prüfung.
+
 ## [0.4.2] - 2026-08-13
 
 ### Added
