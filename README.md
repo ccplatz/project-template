@@ -88,6 +88,9 @@ Permanent documentation for design rationale and implementation history:
 ### Tests
 - `tests/bin/worktree_test.sh` — unit tests for the worktree orchestration script
 - `tests/bin/project_config_test.sh` — unit tests for project configuration
+- `tests/bin/template_sync_test.sh` — unit tests for template synchronization
+- `tests/bin/template_release_test.sh` — unit tests for release consistency checks
+- `tests/bin/release_test.sh` — unit tests for the release workflow script
 
 ### Guardrails (`bin/guardrails-check`)
 
@@ -184,6 +187,9 @@ git commit -m "Initial commit from project-template"
 ```sh
 ./tests/bin/project_config_test.sh
 ./tests/bin/worktree_test.sh
+./tests/bin/template_sync_test.sh
+./tests/bin/template_release_test.sh
+./tests/bin/release_test.sh
 ```
 
 The worktree test requires a Git repository and a `bin/consumer` fixture.

@@ -1,5 +1,11 @@
 # <PROJEKTNAME> — Agent Guide
 
+## Conventions
+
+This repository is maintained in English. All documentation, commit messages,
+code comments, and user-facing output must be written in English. Do not
+introduce German text in changelog entries, docs, or code.
+
 ## Further instructions
 
 <!-- TODO: Entferne nicht benötigte instructions-Dateien aus der Liste unten. -->
@@ -71,9 +77,9 @@ them directly. Adjust them to your consumer's runtime.
 3. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend-Tests (Vitest o.ä.) -->
 4. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run check` — ESLint + TypeScript + Prettier
 5. `npm run test:e2e` — <!-- TODO: E2E-Tests (Playwright o.ä.), nur auf dem Host -->
-6. Release-Vorschlag vorlegen (Versionstyp + CHANGELOG-Zusammenfassung) und
-   die Freigabe abwarten; erst nach expliziter Bestätigung
-   `./bin/release <patch|minor|major>` ausführen (siehe Release-Workflow unten).
+6. Present a release proposal (version type + CHANGELOG summary) and wait for
+   approval; run `./bin/release <patch|minor|major>` only after explicit
+   confirmation (see Release workflow below).
 
 <!-- TODO: PHPStan-Level und andere Qualitätsregeln hier dokumentieren -->
 
@@ -100,24 +106,24 @@ them directly. Adjust them to your consumer's runtime.
 
 ## Release-Workflow
 
-Vor jedem Push wird eine neue Version angelegt, wenn template-owned Dateien
-geändert wurden (siehe `template-manifest.tsv`). Der Release läuft über ein
-Human Gate — er wird nie automatisch oder stillschweigend ausgelöst:
+Before any push, a new version is created whenever template-owned files were
+changed (see `template-manifest.tsv`). Releases go through a Human Gate — they
+are never triggered automatically or silently:
 
-1. **Während der Feature-Arbeit:** Änderungen unter `## [Unreleased]` in
-   `CHANGELOG.md` eintragen (die Sektion muss an der Spitze stehen).
-2. **Nach bestandener Validierung (Human Gate):** Release-Vorschlag vorlegen
-   — Versionstyp (`patch`/`minor`/`major`), Zielversion und CHANGELOG-Zusammen-
-   fassung — und explizit auf Freigabe warten. Ohne ausdrückliche Bestätigung
-   wird kein Release erstellt.
-3. **Nach Freigabe:** `./bin/release <patch|minor|major>` ausführen. Das
-   Skript bumpst `VERSION`, wandelt die `[Unreleased]`-Sektion in
-   `## [X.Y.Z] - <Datum>` um, synchronisiert die Versionsreferenz in
-   `tests/bin/template_sync_test.sh`, committet
-   (`release: bump template to X.Y.Z`), prüft die Konsistenz mit
-   `bin/template-release-check` (bei Fehler Rollback des Commits) und taggt
-   anschließend annotiert (`vX.Y.Z`).
-4. **Push (durch den Benutzer):** `git push --tags`.
+1. **During feature work:** record changes under `## [Unreleased]` in
+   `CHANGELOG.md` (the section must be at the top).
+2. **After passing validation (Human Gate):** present a release proposal —
+   version type (`patch`/`minor`/`major`), target version, and CHANGELOG
+   summary — and wait for explicit approval. Without explicit confirmation no
+   release is created.
+3. **After approval:** run `./bin/release <patch|minor|major>`. The script
+   bumps `VERSION`, converts the `[Unreleased]` section into
+   `## [X.Y.Z] - <date>`, synchronizes the version reference in
+   `tests/bin/template_sync_test.sh`, commits
+   (`release: bump template to X.Y.Z`), verifies consistency with
+   `bin/template-release-check` (rolling back the commit on failure), and then
+   creates an annotated tag (`vX.Y.Z`).
+4. **Push (by the user):** `git push --tags`.
 
-Versionswahl: `patch` für Bugfixes, `minor` für neue Features, `major` für
-Breaking Changes.
+Version choice: `patch` for bug fixes, `minor` for new features, `major` for
+breaking changes.

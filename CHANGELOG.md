@@ -2,31 +2,41 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Added
+
+- MIT license for template redistribution; `LICENSE` is now synchronized to
+  consumers as a template-owned file.
+- Document the English-only convention in `AGENTS.md` and translate the legacy
+  German changelog entries.
+
 ## [0.4.3] - 2026-08-13
 
 ### Fixed
 
-- `bin/release` prüft die Konsistenz vor dem Taggen und setzt den
-  Release-Commit bei einem Fehler zurück; der Tag wird erst danach erstellt.
-- Das Unreleased-Gate in `bin/release` verwendet exakten Zeilenabgleich.
-- Die Dirty-Tree-Prüfung in `bin/release` erkennt auch untracked Dateien.
-- Der Versions-Sync in `bin/release` ist auf `tests/bin/template_sync_test.sh`
-  begrenzt, damit die Fixtures in `tests/bin/release_test.sh` stabil bleiben.
+- `bin/release` verifies consistency before tagging and rolls back the release
+  commit on failure; the tag is only created afterwards.
+- The Unreleased gate in `bin/release` uses exact line matching.
+- The dirty-tree check in `bin/release` also detects untracked files.
+- Version synchronization in `bin/release` is scoped to
+  `tests/bin/template_sync_test.sh` so the fixtures in `tests/bin/release_test.sh`
+  stay stable.
 
 ### Added
 
-- Tests für `bin/release` für Rollback, `major`-Bump, VERSION-Format und
-  untracked-Datei-Prüfung.
+- Tests for `bin/release` covering rollback, `major` bumps, VERSION formatting,
+  and untracked-file detection.
 
 ## [0.4.2] - 2026-08-13
 
 ### Added
 
-- `bin/release` erstellt neue Template-Versionen in einem Schritt:
-  `VERSION`-Bump, CHANGELOG-Header, Commit, annotierter Tag `vX.Y.Z` und
-  Konsistenzprüfung über `bin/template-release-check`.
-- Tests für `bin/release` in `tests/bin/release_test.sh`.
-- Release-Workflow in `AGENTS.md` dokumentiert.
+- `bin/release` creates new template releases in one step: `VERSION` bump,
+  CHANGELOG header, commit, annotated `vX.Y.Z` tag, and consistency check via
+  `bin/template-release-check`.
+- Tests for `bin/release` in `tests/bin/release_test.sh`.
+- Release workflow documented in `AGENTS.md`.
 
 ## [0.4.1] - 2026-08-12
 

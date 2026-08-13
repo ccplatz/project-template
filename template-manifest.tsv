@@ -1,4 +1,5 @@
 # strategy	path
+template-owned	LICENSE
 template-owned	template-manifest.tsv
 template-owned	bin/template-sync
 template-owned	bin/template-release-check

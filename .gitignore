@@ -26,6 +26,7 @@ Thumbs.db
 docs/superpowers
 .superpowers
 .worktrees
+.worktrees-share
 /.worktree-active
 tests/e2e/.auth
 test-results/
