@@ -114,8 +114,9 @@ Human Gate — er wird nie automatisch oder stillschweigend ausgelöst:
    Skript bumpst `VERSION`, wandelt die `[Unreleased]`-Sektion in
    `## [X.Y.Z] - <Datum>` um, synchronisiert die Versionsreferenz in
    `tests/bin/template_sync_test.sh`, committet
-   (`release: bump template to X.Y.Z`), taggt annotiert (`vX.Y.Z`)
-   und prüft die Konsistenz mit `bin/template-release-check`.
+   (`release: bump template to X.Y.Z`), prüft die Konsistenz mit
+   `bin/template-release-check` (bei Fehler Rollback des Commits) und taggt
+   anschließend annotiert (`vX.Y.Z`).
 4. **Push (durch den Benutzer):** `git push --tags`.
 
 Versionswahl: `patch` für Bugfixes, `minor` für neue Features, `major` für
