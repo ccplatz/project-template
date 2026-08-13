@@ -71,6 +71,9 @@ them directly. Adjust them to your consumer's runtime.
 3. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend-Tests (Vitest o.ä.) -->
 4. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run check` — ESLint + TypeScript + Prettier
 5. `npm run test:e2e` — <!-- TODO: E2E-Tests (Playwright o.ä.), nur auf dem Host -->
+6. Release-Vorschlag vorlegen (Versionstyp + CHANGELOG-Zusammenfassung) und
+   die Freigabe abwarten; erst nach expliziter Bestätigung
+   `./bin/release <patch|minor|major>` ausführen (siehe Release-Workflow unten).
 
 <!-- TODO: PHPStan-Level und andere Qualitätsregeln hier dokumentieren -->
 
@@ -94,3 +97,25 @@ them directly. Adjust them to your consumer's runtime.
 - `resources/js/pages/` — page components
 - `resources/js/services/` — API service modules
 - `routes/api.php` — REST API
+
+## Release-Workflow
+
+Vor jedem Push wird eine neue Version angelegt, wenn template-owned Dateien
+geändert wurden (siehe `template-manifest.tsv`). Der Release läuft über ein
+Human Gate — er wird nie automatisch oder stillschweigend ausgelöst:
+
+1. **Während der Feature-Arbeit:** Änderungen unter `## [Unreleased]` in
+   `CHANGELOG.md` eintragen (die Sektion muss an der Spitze stehen).
+2. **Nach bestandener Validierung (Human Gate):** Release-Vorschlag vorlegen
+   — Versionstyp (`patch`/`minor`/`major`), Zielversion und CHANGELOG-Zusammen-
+   fassung — und explizit auf Freigabe warten. Ohne ausdrückliche Bestätigung
+   wird kein Release erstellt.
+3. **Nach Freigabe:** `./bin/release <patch|minor|major>` ausführen. Das
+   Skript bumpst `VERSION`, wandelt die `[Unreleased]`-Sektion in
+   `## [X.Y.Z] - <Datum>` um, synchronisiert Versionsreferenzen in `tests/bin/`,
+   committet (`release: bump template to X.Y.Z`), taggt annotiert (`vX.Y.Z`)
+   und prüft die Konsistenz mit `bin/template-release-check`.
+4. **Push (durch den Benutzer):** `git push --tags`.
+
+Versionswahl: `patch` für Bugfixes, `minor` für neue Features, `major` für
+Breaking Changes.

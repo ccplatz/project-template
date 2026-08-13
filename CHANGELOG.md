@@ -2,6 +2,16 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Added
+
+- `bin/release` erstellt neue Template-Versionen in einem Schritt:
+  `VERSION`-Bump, CHANGELOG-Header, Commit, annotierter Tag `vX.Y.Z` und
+  Konsistenzprüfung über `bin/template-release-check`.
+- Tests für `bin/release` in `tests/bin/release_test.sh`.
+- Release-Workflow in `AGENTS.md` dokumentiert.
+
 ## [0.4.1] - 2026-08-12
 
 ### Fixed
