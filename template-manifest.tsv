@@ -9,6 +9,8 @@ template-owned	bin/worktree-lib.sh
 template-owned	tests/bin/project_config_test.sh
 template-owned	tests/bin/template_sync_test.sh
 template-owned	tests/bin/template_release_test.sh
+template-owned	bin/release
+template-owned	tests/bin/release_test.sh
 template-owned	tests/bin/worktree_test.sh
 template-owned	.opencode/plugins/guardrails.ts
 template-owned	.editorconfig

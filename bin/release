@@ -1,0 +1,73 @@
+#!/bin/bash
+# bin/release — lege eine neue Template-Version an.
+#
+# Verwendung:
+#   bin/release [patch|minor|major]   # Standard: patch
+#
+# Voraussetzungen:
+#   - sauberes Arbeitsverzeichnis (alles committet)
+#   - CHANGELOG.md hat an der Spitze eine "## [Unreleased]"-Sektion
+#
+# Erstellt: VERSION-Bump, CHANGELOG-Header, Version-Sync in tests/bin,
+# Commit ("release: bump template to X.Y.Z"), annotierten Tag vX.Y.Z und
+# prüft danach die Konsistenz mit bin/template-release-check.
+
+set -euo pipefail
+
+die() {
+    printf 'release: %s\n' "$1" >&2
+    exit 1
+}
+
+bump_type=${1:-patch}
+root=$(git rev-parse --show-toplevel 2>/dev/null) || \
+    die 'Aktuelles Verzeichnis ist kein Git-Repository.'
+
+[ -f "$root/VERSION" ] || die "VERSION fehlt: $root/VERSION"
+[ -f "$root/CHANGELOG.md" ] || die "CHANGELOG.md fehlt: $root/CHANGELOG.md"
+
+old_version=$(<"$root/VERSION")
+[[ "$old_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+    die "VERSION muss major.minor.patch entsprechen: $old_version"
+
+case "$bump_type" in
+    patch|minor|major) ;;
+    *) die "Ungültiger Bump-Typ: $bump_type (patch|minor|major)" ;;
+esac
+
+git -C "$root" diff --quiet HEAD || \
+    die 'Arbeitsverzeichnis ist nicht sauber; committe oder stashe zuerst.'
+
+grep -q '^## \[Unreleased\]' "$root/CHANGELOG.md" || \
+    die 'CHANGELOG.md braucht eine "## [Unreleased]"-Sektion an der Spitze.'
+
+new_version=$(awk -F. -v part="$bump_type" '
+    BEGIN { OFS = "." }
+    {
+        if (part == "patch") $3++
+        else if (part == "minor") { $2++; $3 = 0 }
+        else { $1++; $2 = 0; $3 = 0 }
+        print
+    }
+' <<< "$old_version")
+
+date_stamp=$(date +%F)
+awk -v old='## [Unreleased]' -v header="## [$new_version] - $date_stamp" '
+    !replaced && $0 == old { print header; replaced = 1; next }
+    { print }
+' "$root/CHANGELOG.md" > "$root/CHANGELOG.md.tmp"
+mv "$root/CHANGELOG.md.tmp" "$root/CHANGELOG.md"
+
+printf '%s\n' "$new_version" > "$root/VERSION"
+
+escaped_old=${old_version//./\\.}
+sed -i "s/$escaped_old/$new_version/g" "$root"/tests/bin/*.sh
+
+git -C "$root" add VERSION CHANGELOG.md tests/bin
+git -C "$root" commit -q -m "release: bump template to $new_version"
+git -C "$root" tag -a "v$new_version" -m "Template $new_version"
+
+"$root/bin/template-release-check" "$root"
+
+printf 'Release %s erstellt (Tag v%s). Push mit: git push --tags\n' \
+    "$new_version" "$new_version"
