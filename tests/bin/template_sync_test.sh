@@ -177,7 +177,7 @@ assert_file_contains "$script_dir/../../AGENTS.md" \
     'switch' 'agent guide documents non-destructive switching'
 assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.3.0]' \
     'changelog records the parallel stack release'
-assert_eq '0.4.6' "$(<"$script_dir/../../VERSION")" \
+assert_eq '0.4.7' "$(<"$script_dir/../../VERSION")" \
     'VERSION records the worktree environment release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" '.template/template.lock' \
     'sync documentation defines the lock file'
