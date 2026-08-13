@@ -70,7 +70,7 @@ printf '# changed without release metadata\n' > "$root/bin/worktree-lib.sh"
 git -C "$root" add bin/worktree-lib.sh
 git -C "$root" commit -q -m 'change without release'
 
-assert_failure_contains 'Release-Version fehlt' "$release_check" "$root"
+assert_failure_contains 'Release version missing' "$release_check" "$root"
 
 printf '0.3.1\n' > "$root/VERSION"
 printf '# Changelog\n\n## [0.3.1] - 2026-08-10\n\n## [0.3.0] - 2026-08-09\n' > "$root/CHANGELOG.md"
@@ -80,7 +80,7 @@ git -C "$root" commit -q -m 'release metadata'
 assert_status 0 "$release_check" "$root"
 
 printf '# mismatched changelog\n\n## [0.3.0] - 2026-08-09\n' > "$root/CHANGELOG.md"
-assert_failure_contains 'CHANGELOG-Version' "$release_check" "$root"
+assert_failure_contains 'CHANGELOG version' "$release_check" "$root"
 
 if [ "$failures" -ne 0 ]; then
     printf '%s test(s) failed\n' "$failures" >&2

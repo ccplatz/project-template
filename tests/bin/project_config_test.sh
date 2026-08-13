@@ -86,52 +86,52 @@ assert_eq 'finance|http=8080,frontend=5173,database=3306,cache=6379|10|.env.exam
     'exports the validated configuration'
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=bad-name=8080\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=8080,http=9090\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=8080,broken\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=0\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=8080,,cache=6379\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=HTTP=8080\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=8080,HTTP=9090\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=08080\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=65536\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=99999999999999999999\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_PROFILE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_PROFILE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_PROFILE=http=65535\n' > "$root/.template/project.conf"
 assert_status 0 load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_STRIDE=0\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_STRIDE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_STRIDE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_STRIDE=010\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_STRIDE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_STRIDE' load_project_config "$root"
 
 printf 'PROJECT_NAME=finance\nWORKTREE_PORT_STRIDE=-1\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger WORKTREE_PORT_STRIDE' load_project_config "$root"
+assert_failure_contains 'Invalid WORKTREE_PORT_STRIDE' load_project_config "$root"
 
 printf 'PROJECT_NAME=_finance\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger PROJECT_NAME' load_project_config "$root"
+assert_failure_contains 'Invalid PROJECT_NAME' load_project_config "$root"
 
 printf 'PROJECT_NAME=bad/name\n' > "$root/.template/project.conf"
-assert_failure_contains 'Ungültiger PROJECT_NAME' load_project_config "$root"
+assert_failure_contains 'Invalid PROJECT_NAME' load_project_config "$root"
 
 if [ "$failures" -ne 0 ]; then
     printf '%s test(s) failed\n' "$failures" >&2

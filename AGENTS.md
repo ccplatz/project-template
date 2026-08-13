@@ -1,4 +1,4 @@
-# <PROJEKTNAME> — Agent Guide
+# <PROJECT_NAME> — Agent Guide
 
 ## Conventions
 
@@ -8,23 +8,19 @@ introduce German text in changelog entries, docs, or code.
 
 ## Further instructions
 
-<!-- TODO: Entferne nicht benötigte instructions-Dateien aus der Liste unten. -->
+<!-- TODO: Remove unneeded instructions files from the list below. -->
 
 Read the following files ONLY if your current task requires this information.
 Use the read tool – only read a file when you absolutely need it.
 
 - `docs/instructions/guardrails.instructions.md` — hard constraints, anti-patterns, learned rules (load when generating or modifying any code)
-- `docs/instructions/domain.instructions.md` — <!-- TODO: Domänenmodell und Business-Logik -->
-- `docs/instructions/testing.instructions.md` — <!-- TODO: Test-Konventionen -->
-- `docs/instructions/laravel.instructions.md` — <!-- TODO: Laravel-Konventionen -->
-- `docs/instructions/react.instructions.md` — <!-- TODO: Frontend-Konventionen (React, Vue, etc.) -->
-- `docs/instructions/tailwind.instructions.md` — <!-- TODO: Styling-Konventionen -->
-- `docs/instructions/design-system.instructions.md` — <!-- TODO: Design-Tokens und -System -->
-- `docs/instructions/environments.instructions.md` — <!-- TODO: Dev/Staging/Prod-Setup -->
-- `docs/superpowers/specs/` — design specs and rationale for existing features
-  → consult when modifying an existing feature to understand prior design decisions
-- `docs/superpowers/plans/` — implementation plans for completed work
-  → consult when modifying an existing feature to understand prior design decisions
+- `docs/instructions/domain.instructions.md` — <!-- TODO: Domain model and business logic -->
+- `docs/instructions/testing.instructions.md` — <!-- TODO: Testing conventions -->
+- `docs/instructions/laravel.instructions.md` — <!-- TODO: Laravel conventions -->
+- `docs/instructions/react.instructions.md` — <!-- TODO: Frontend conventions (React, Vue, etc.) -->
+- `docs/instructions/tailwind.instructions.md` — <!-- TODO: Styling conventions -->
+- `docs/instructions/design-system.instructions.md` — <!-- TODO: Design tokens and system -->
+- `docs/instructions/environments.instructions.md` — <!-- TODO: Dev/staging/prod setup -->
 
 ## Running commands
 
@@ -72,30 +68,30 @@ through the consumer-owned `bin/consumer` adapter; the template never invokes
 them directly. Adjust them to your consumer's runtime.
 
 0. `./bin/guardrails-check` — automated code quality & security guardrails (see `.opencode/plugins/guardrails.ts`)
-1. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan test` — PHPUnit (feature + unit)
-2. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail composer check` — PHPStan + Pint (format)
-3. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend-Tests (Vitest o.ä.) -->
-4. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run check` — ESLint + TypeScript + Prettier
-5. `npm run test:e2e` — <!-- TODO: E2E-Tests (Playwright o.ä.), nur auf dem Host -->
+1. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail artisan test` — PHPUnit (feature + unit)
+2. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail composer check` — PHPStan + Pint (format)
+3. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend tests (Vitest or similar) -->
+4. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail npm run check` — ESLint + TypeScript + Prettier
+5. `npm run test:e2e` — <!-- TODO: E2E tests (Playwright or similar), host only -->
 6. Present a release proposal (version type + CHANGELOG summary) and wait for
    approval; run `./bin/release <patch|minor|major>` only after explicit
    confirmation (see Release workflow below).
 
-<!-- TODO: PHPStan-Level und andere Qualitätsregeln hier dokumentieren -->
+<!-- TODO: Document the PHPStan level and other quality rules here -->
 
 ## Key architecture
 
-<!-- TODO: Architektur-Entscheidungen dokumentieren -->
+<!-- TODO: Document architecture decisions -->
 
 - **Thin controllers** → Form Request → Service → API Resource. No business logic in controllers.
 - **No Repository pattern.** Services use Eloquent directly.
-- <!-- TODO: Datenmodell, Auth-Mechanismus, mehrschichtige Architektur -->
+- <!-- TODO: Data model, auth mechanism, layered architecture -->
 
-<!-- TODO: Frontend-Konventionen (Dark Mode, Framework, UI-Sprache, Formatierung) -->
+<!-- TODO: Frontend conventions (dark mode, framework, UI language, formatting) -->
 
 ## References
 
-<!-- TODO: Zentrale Verzeichnisse und Dateien auflisten -->
+<!-- TODO: List central directories and files -->
 
 - `app/Http/Controllers/` — thin controllers
 - `app/Services/` — all business logic

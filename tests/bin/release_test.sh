@@ -75,25 +75,25 @@ printf '%s\n' \
 printf '%s\n' \
     '#!/bin/bash' \
     "assert_eq '0.4.1' \"\$(<\"\$script_dir/../../VERSION\")\" \\" \
-    "    'VERSION gesynct'" > "$root/tests/bin/template_sync_test.sh"
+    "    'VERSION synced'" > "$root/tests/bin/template_sync_test.sh"
 git -C "$root" add .
 git -C "$root" commit -q -m baseline
 baseline=$(git -C "$root" rev-parse HEAD)
 
 cd "$root"
 
-assert_failure_contains 'Ungültiger Bump-Typ' "$release" --bogus
+assert_failure_contains 'Invalid bump type' "$release" --bogus
 
 printf 'abc\n' > "$root/VERSION"
 assert_failure_contains 'major.minor.patch' "$release"
 git -C "$root" checkout -- VERSION
 
 printf '0.9.9\n' > "$root/VERSION"
-assert_failure_contains 'nicht sauber' "$release"
+assert_failure_contains 'not clean' "$release"
 git -C "$root" checkout -- VERSION
 
 printf 'untracked\n' > "$root/untracked.txt"
-assert_failure_contains 'nicht sauber' "$release"
+assert_failure_contains 'not clean' "$release"
 rm "$root/untracked.txt"
 
 sed -i '/^## \[Unreleased\]/,+3d' "$root/CHANGELOG.md"
@@ -111,29 +111,29 @@ printf '#!/bin/bash\nprintf "stubbed check failure\\n" >&2\nexit 1\n' \
 chmod +x "$root/bin/template-release-check"
 git -C "$root" add bin/template-release-check
 git -C "$root" commit -q -m 'stub release check'
-assert_failure_contains 'Konsistenzprüfung fehlgeschlagen' "$release" patch
+assert_failure_contains 'Consistency check failed' "$release" patch
 assert_eq 'stub release check' "$(git -C "$root" log -1 --format=%s)" \
-    'Rollback: Release-Commit zurückgesetzt'
-assert_eq '0.4.1' "$(<"$root/VERSION")" 'VERSION nach Rollback'
+    'Rollback: release commit reset'
+assert_eq '0.4.1' "$(<"$root/VERSION")" 'VERSION after rollback'
 assert_eq 0 "$(git -C "$root" tag -l 'v0.4.2' | wc -l)" \
-    'kein Tag nach Rollback'
+    'no tag after rollback'
 cp "$backup_check" "$root/bin/template-release-check"
 chmod +x "$root/bin/template-release-check"
 git -C "$root" add bin/template-release-check
 git -C "$root" commit -q -m 'restore release check'
 
 assert_status 0 "$release" patch
-assert_eq '0.4.2' "$(<"$root/VERSION")" 'VERSION nach patch-Bump'
+assert_eq '0.4.2' "$(<"$root/VERSION")" 'VERSION after patch bump'
 assert_eq "## [0.4.2] - $(date +%F)" \
-    "$(grep -m1 '^## \[' "$root/CHANGELOG.md")" 'CHANGELOG-Header nach patch-Bump'
+    "$(grep -m1 '^## \[' "$root/CHANGELOG.md")" 'CHANGELOG header after patch bump'
 assert_status 0 "$release_check" "$root"
 assert_eq 'release: bump template to 0.4.2' \
-    "$(git -C "$root" log -1 --format=%s)" 'Release-Commit-Message'
-assert_eq 'tag' "$(git -C "$root" cat-file -t v0.4.2)" 'annotierter Tag v0.4.2'
+    "$(git -C "$root" log -1 --format=%s)" 'release commit message'
+assert_eq 'tag' "$(git -C "$root" cat-file -t v0.4.2)" 'annotated tag v0.4.2'
 assert_eq "$(git -C "$root" rev-parse HEAD)" \
-    "$(git -C "$root" rev-parse 'v0.4.2^{commit}')" 'Tag zeigt auf Release-Commit'
+    "$(git -C "$root" rev-parse 'v0.4.2^{commit}')" 'tag points at release commit'
 assert_eq 0 "$(grep -c '0\.4\.1' "$root/tests/bin/template_sync_test.sh" || true)" \
-    'alte Version aus Tests entfernt'
+    'old version removed from tests'
 
 printf '%s\n' \
     '# Changelog' '' \
@@ -148,11 +148,11 @@ git -C "$root" add CHANGELOG.md
 git -C "$root" commit -q -m 'feature notes'
 
 assert_status 0 "$release" minor
-assert_eq '0.5.0' "$(<"$root/VERSION")" 'VERSION nach minor-Bump'
+assert_eq '0.5.0' "$(<"$root/VERSION")" 'VERSION after minor bump'
 assert_eq "## [0.5.0] - $(date +%F)" \
-    "$(grep -m1 '^## \[' "$root/CHANGELOG.md")" 'CHANGELOG-Header nach minor-Bump'
+    "$(grep -m1 '^## \[' "$root/CHANGELOG.md")" 'CHANGELOG header after minor bump'
 assert_eq "$(git -C "$root" rev-parse HEAD)" \
-    "$(git -C "$root" rev-parse 'v0.5.0^{commit}')" 'minor-Tag zeigt auf Release-Commit'
+    "$(git -C "$root" rev-parse 'v0.5.0^{commit}')" 'minor tag points at release commit'
 assert_status 0 "$release_check" "$root"
 
 printf '%s\n' \
@@ -171,11 +171,11 @@ git -C "$root" add CHANGELOG.md
 git -C "$root" commit -q -m 'breaking change notes'
 
 assert_status 0 "$release" major
-assert_eq '1.0.0' "$(<"$root/VERSION")" 'VERSION nach major-Bump'
+assert_eq '1.0.0' "$(<"$root/VERSION")" 'VERSION after major bump'
 assert_eq "## [1.0.0] - $(date +%F)" \
-    "$(grep -m1 '^## \[' "$root/CHANGELOG.md")" 'CHANGELOG-Header nach major-Bump'
+    "$(grep -m1 '^## \[' "$root/CHANGELOG.md")" 'CHANGELOG header after major bump'
 assert_eq "$(git -C "$root" rev-parse HEAD)" \
-    "$(git -C "$root" rev-parse 'v1.0.0^{commit}')" 'major-Tag zeigt auf Release-Commit'
+    "$(git -C "$root" rev-parse 'v1.0.0^{commit}')" 'major tag points at release commit'
 assert_status 0 "$release_check" "$root"
 
 if [ "$failures" -ne 0 ]; then

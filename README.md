@@ -77,14 +77,6 @@ agent context about your project:
 
 Delete any that don't apply to your project and update `AGENTS.md` accordingly.
 
-### Superpowers docs (`docs/superpowers/`)
-
-Permanent documentation for design rationale and implementation history:
-
-- `specs/` — Design specs with rationale for features. Create before implementation;
-  consult when modifying existing features.
-- `plans/` — Step-by-step implementation plans. Artifacts of completed or in-progress work.
-
 ### Tests
 - `tests/bin/worktree_test.sh` — unit tests for the worktree orchestration script
 - `tests/bin/project_config_test.sh` — unit tests for project configuration
@@ -137,7 +129,7 @@ Read `docs/template-sync.md` before making future template updates.
 
 ### 3. Fill in AGENTS.md
 
-Replace all `<!-- TODO -->` comments and `<PROJEKTNAME_ANZEIGE>` placeholders
+Replace all `<!-- TODO -->` comments and `<PROJECT_DISPLAY_NAME>` placeholders
 with project-specific content. Fill in the architecture, frontend conventions,
 and references sections. Remove any `docs/instructions/*` entries that don't apply.
 

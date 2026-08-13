@@ -30,7 +30,7 @@ worktree_instance_name_for_worktree() {
         printf '%s\n' "$instance_name"
         return 0
     fi
-    printf 'ungültiger Worktree-Instanzname: %s (abgeleitet aus PROJECT_NAME=%s)\n' \
+    printf 'invalid worktree instance name: %s (derived from PROJECT_NAME=%s)\n' \
         "$instance_name" "$PROJECT_NAME" >&2
     return 1
 }
@@ -108,21 +108,21 @@ write_worktree_state() {
         while IFS='=' read -r profile_name profile_base; do
             if [ "$#" -lt 1 ]; then
                 rm -f "$temporary_file"
-                die "ungültiger Worktree-Zustand: unvollständiges Portprofil für $name"
+                die "invalid worktree state: incomplete port profile for $name"
                 return 1
             fi
             port=$1
             shift
             if ! worktree_port_is_valid "$port"; then
                 rm -f "$temporary_file"
-                die "ungültiger Worktree-Zustand: ungültiger Port für $profile_name"
+                die "invalid worktree state: invalid port for $profile_name"
                 return 1
             fi
             printf 'WORKTREE_PORT_%s=%s\n' "${profile_name^^}" "$port"
         done < <(worktree_profile_entries)
         if [ "$#" -ne 0 ]; then
             rm -f "$temporary_file"
-            die "ungültiger Worktree-Zustand: zu viele Ports für $name"
+            die "invalid worktree state: too many ports for $name"
             return 1
         fi
     } > "$temporary_file"
@@ -148,7 +148,7 @@ load_worktree_state() {
     state_file=$(worktree_state_path "$name") || return 1
     expected_instance_name=$(worktree_instance_name_for_worktree "$name") || return 1
     if [ ! -f "$state_file" ]; then
-        die "Worktree-Zustand fehlt für $name: $state_file"
+        die "worktree state missing for $name: $state_file"
         return 1
     fi
 
@@ -159,7 +159,7 @@ load_worktree_state() {
                 key=${line%%=*}
                 value=${line#*=}
                 if [ -n "${seen_keys[$key]+set}" ]; then
-                    die "ungültiger Worktree-Zustand: doppelter Schlüssel $key in $state_file"
+                    die "invalid worktree state: duplicate key $key in $state_file"
                     return 1
                 fi
                 seen_keys[$key]=1
@@ -168,45 +168,45 @@ load_worktree_state() {
                     WORKTREE_INSTANCE_NAME) state_instance_name=$value ;;
                     WORKTREE_PORT_*)
                         if ! profile_name=$(worktree_profile_name_for_key "$key"); then
-                            die "ungültiger Worktree-Zustand: unbekannter Schlüssel $key in $state_file"
+                            die "invalid worktree state: unknown key $key in $state_file"
                             return 1
                         fi
                         state_ports[$profile_name]=$value
                         ;;
                     *)
-                        die "ungültiger Worktree-Zustand: unbekannter Schlüssel $key in $state_file"
+                        die "invalid worktree state: unknown key $key in $state_file"
                         return 1
                         ;;
                 esac
                 ;;
             *)
-                die "ungültiger Worktree-Zustand: unerwartete Zeile in $state_file"
+                die "invalid worktree state: unexpected line in $state_file"
                 return 1
                 ;;
         esac
     done < "$state_file"
 
     if [ -z "${seen_keys[WORKTREE_NAME]+set}" ] || [ -z "${seen_keys[WORKTREE_INSTANCE_NAME]+set}" ]; then
-        die "ungültiger Worktree-Zustand: unvollständiger Datensatz in $state_file"
+        die "invalid worktree state: incomplete record in $state_file"
         return 1
     fi
     if [ "$state_name" != "$name" ]; then
-        die "ungültiger Worktree-Zustand: Worktree-Name weicht ab in $state_file"
+        die "invalid worktree state: worktree name mismatch in $state_file"
         return 1
     fi
     if [ "$state_instance_name" != "$expected_instance_name" ]; then
-        die "ungültiger Worktree-Zustand: Worktree-Instanzname weicht ab in $state_file"
+        die "invalid worktree state: worktree instance name mismatch in $state_file"
         return 1
     fi
     while IFS='=' read -r profile_name profile_base; do
         port_key=WORKTREE_PORT_${profile_name^^}
         if [ -z "${seen_keys[$port_key]+set}" ]; then
-            die "ungültiger Worktree-Zustand: unvollständiger Datensatz in $state_file"
+            die "invalid worktree state: incomplete record in $state_file"
             return 1
         fi
         state_port=${state_ports[$profile_name]}
         if ! worktree_port_is_valid "$state_port"; then
-            die "ungültiger Worktree-Zustand: Port WORKTREE_PORT_$profile_name muss dezimal und gültig sein in $state_file"
+            die "invalid worktree state: port WORKTREE_PORT_$profile_name must be decimal and valid in $state_file"
             return 1
         fi
     done < <(worktree_profile_entries)
@@ -254,7 +254,7 @@ acquire_worktree_state_lock() {
                     ;;
                 *)
                     if kill -0 "$pid" 2>/dev/null; then
-                        die "Portzuweisung läuft bereits (Prozess $pid). Warte und versuche es erneut."
+                        die "Port allocation is already running (process $pid). Wait and try again."
                         return 1
                     fi
                     rm -rf "$lock_dir"
@@ -264,7 +264,7 @@ acquire_worktree_state_lock() {
             rm -rf "$lock_dir"
         fi
     done
-    die "Portzuweisungs-Sperre konnte nicht erworben werden: $lock_dir"
+    die "Could not acquire the port allocation lock: $lock_dir"
     return 1
 }
 
@@ -357,7 +357,7 @@ ensure_worktree_state() {
         state_name=${state_file##*/}
         state_name=${state_name%.env}
         if ! validate_worktree_name "$state_name" || ! load_worktree_state "$state_name" >/dev/null 2>&1; then
-            die "ungültiger Worktree-Zustand blockiert die Portzuweisung: $state_file"
+            die "invalid worktree state blocks port allocation: $state_file"
             release_worktree_state_lock
             trap - EXIT
             return 1
@@ -374,7 +374,7 @@ ensure_worktree_state() {
         fi
     done
     if [ "$index" -ge 100 ]; then
-        die "Kein freier Port-Bereich für Worktree $name verfügbar."
+        die "No free port range available for worktree $name."
         release_worktree_state_lock
         trap - EXIT
         return 1

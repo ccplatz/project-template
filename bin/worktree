@@ -8,9 +8,9 @@ worktree_root=${WORKTREE_TEST_ROOT:-$script_root}
 
 usage() {
     cat <<'EOF'
-bin/worktree — Worktree-Verwaltung für das Projekt
+bin/worktree — Worktree management for the project
 
-Verwendung:
+Usage:
   bin/worktree create <name> [--existing]
   bin/worktree bootstrap <name>
   bin/worktree start [<name>] [--fresh]
@@ -21,29 +21,29 @@ Verwendung:
   bin/worktree reset [<name>]
   bin/worktree prune
 
-Befehle:
-  create <name>       Neuen Worktree anlegen und bootstrappen
-    --existing        Branch <name> existiert bereits, nicht von main abzweigen
+Commands:
+  create <name>       Create and bootstrap a new worktree
+    --existing        Branch <name> already exists, do not branch off main
 
-  bootstrap <name>    Worktree über den Consumer vorbereiten
+  bootstrap <name>    Prepare the worktree through the consumer
 
-  start [<name>]      Benannten oder aktiven Worktree starten
-    --fresh           Veralteter Alias für reset
+  start [<name>]      Start the named or active worktree
+    --fresh           Deprecated alias for reset
 
-  stop [<name>]       Benannten oder aktiven Worktree stoppen
+  stop [<name>]       Stop the named or active worktree
 
-  switch <name>       Worktree auswählen und starten, andere Worktrees bleiben aktiv
-    --fresh           Veralteter Alias für reset
+  switch <name>       Select and start a worktree, other worktrees stay active
+    --fresh           Deprecated alias for reset
 
-  status [<name>]     Einen Worktree mit Instanz, Ports und Status anzeigen
-    --all             Alle Worktrees und verwaiste Zustände anzeigen
+  status [<name>]     Show a worktree with instance, ports and status
+    --all             Show all worktrees and orphaned states
 
-  reset [<name>]      Benannten oder aktiven Worktree zurücksetzen
+  reset [<name>]      Reset the named or active worktree
 
-  prune               Verwaiste Zustandsdateien entfernen
+  prune               Remove orphaned state files
 
-Optionen:
-  --help, -h          Diese Hilfe anzeigen
+Options:
+  --help, -h          Show this help
 EOF
 }
 
@@ -134,7 +134,7 @@ switch_worktree() {
     local reset_status
     target=$(resolve_worktree "$name") || return 1
     if ! start_named "$name" 0; then
-        printf 'Start des Worktrees "%s" fehlgeschlagen.\n' "$name" >&2
+        printf 'Failed to start worktree "%s".\n' "$name" >&2
         return 1
     fi
 
@@ -143,7 +143,7 @@ switch_worktree() {
             :
         else
             reset_status=$?
-            printf 'Reset des Ziel-Worktrees wurde nicht abgeschlossen.\n' >&2
+            printf 'Reset of the target worktree was not completed.\n' >&2
             return "$reset_status"
         fi
     fi

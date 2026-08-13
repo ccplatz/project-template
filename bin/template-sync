@@ -4,14 +4,14 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Verwendung: template-sync --target <path> [--dry-run] [--force]
+Usage: template-sync --target <path> [--dry-run] [--force]
 
-Synchronisiert template-owned Dateien aus dem aktuellen Template-Checkout.
+Synchronizes template-owned files from the current template checkout.
 EOF
 }
 
 die() {
-    printf 'Fehler: %s\n' "$1" >&2
+    printf 'Error: %s\n' "$1" >&2
     exit 1
 }
 
@@ -22,7 +22,7 @@ force=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --target)
-            [ "$#" -ge 2 ] || die 'Option --target benötigt einen Pfad.'
+            [ "$#" -ge 2 ] || die 'Option --target requires a path.'
             target_input=$2
             shift 2
             ;;
@@ -54,24 +54,24 @@ script_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 manifest_file="$script_root/template-manifest.tsv"
 version_file="$script_root/VERSION"
 
-[ -f "$manifest_file" ] || die "Manifest fehlt: $manifest_file"
-[ -f "$version_file" ] || die "VERSION fehlt: $version_file"
+[ -f "$manifest_file" ] || die "Manifest missing: $manifest_file"
+[ -f "$version_file" ] || die "VERSION missing: $version_file"
 
 version=$(<"$version_file")
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
-    die "VERSION muss major.minor.patch entsprechen: $version"
+    die "VERSION must match major.minor.patch: $version"
 
 source_commit=$(git -C "$script_root" rev-parse HEAD 2>/dev/null) || \
-    die 'Template-Checkout ist kein Git-Repository mit HEAD.'
+    die 'Template checkout is not a Git repository with a HEAD.'
 source_name=$(basename "$script_root")
 
-[ -d "$target_input" ] || die "Zielverzeichnis fehlt: $target_input"
+[ -d "$target_input" ] || die "Target directory missing: $target_input"
 target_git_root=$(git -C "$target_input" rev-parse --show-toplevel 2>/dev/null) || \
-    die 'Das Ziel muss ein Git-Worktree sein.'
+    die 'The target must be a Git worktree.'
 target_root=$(cd -- "$target_git_root" && pwd -P)
 
 if [ "$target_root" = "$script_root" ] || [[ "$target_root" == "$script_root"/* ]]; then
-    die 'Das Zielverzeichnis darf nicht im Template-Checkout liegen.'
+    die 'The target directory must not be inside the template checkout.'
 fi
 
 lock_file="$target_root/.template/template.lock"
@@ -90,12 +90,12 @@ validate_target_path() {
     last_index=$((${#components[@]} - 1))
     for index in "${!components[@]}"; do
         component=${components[$index]}
-        [ -n "$component" ] || die "Unsicherer Zielpfad: $relative_path"
+        [ -n "$component" ] || die "Unsafe target path: $relative_path"
         current="$current/$component"
-        [ ! -L "$current" ] || die "Unsicherer Zielpfad: $relative_path"
+        [ ! -L "$current" ] || die "Unsafe target path: $relative_path"
         if [ "$index" -lt "$last_index" ] && [ -e "$current" ] \
             && [ ! -d "$current" ]; then
-            die "Zielpfad-Komponente ist kein Verzeichnis: $relative_path"
+            die "Target path component is not a directory: $relative_path"
         fi
     done
 }
@@ -116,22 +116,22 @@ validate_source_path() {
     last_index=$((${#components[@]} - 1))
     for index in "${!components[@]}"; do
         component=${components[$index]}
-        [ -n "$component" ] || die "Unsicherer Quellpfad: $relative_path"
+        [ -n "$component" ] || die "Unsafe source path: $relative_path"
         current="$current/$component"
-        [ ! -L "$current" ] || die "Unsicherer Quellpfad: $relative_path"
+        [ ! -L "$current" ] || die "Unsafe source path: $relative_path"
         if [ "$index" -lt "$last_index" ] && [ -e "$current" ] \
             && [ ! -d "$current" ]; then
-            die "Quellpfad-Komponente ist kein Verzeichnis: $relative_path"
+            die "Source path component is not a directory: $relative_path"
         fi
     done
 }
 
 ensure_source_clean() {
     if ! source_status=$(git -C "$script_root" status --porcelain --untracked-files=normal 2>/dev/null); then
-        die 'Der Zustand des Template-Checkouts konnte nicht geprüft werden.'
+        die 'Could not check the template checkout state.'
     fi
     if [ -n "$source_status" ]; then
-        printf 'Fehler: Template-Checkout muss sauber sein; Synchronisation aus uncommitteten, staged oder nicht ignorierten untracked Änderungen ist nicht zulässig.\n' >&2
+        printf 'Error: template checkout must be clean; synchronization from uncommitted, staged or non-ignored untracked changes is not allowed.\n' >&2
         printf '%s\n' "$source_status" >&2
         exit 1
     fi
@@ -142,26 +142,26 @@ locked_version=''
 locked_commit=''
 
 if [ -e "$lock_file" ]; then
-    [ -f "$lock_file" ] || die "Lock ist keine reguläre Datei: $lock_file"
+    [ -f "$lock_file" ] || die "Lock is not a regular file: $lock_file"
     while IFS= read -r lock_line || [ -n "$lock_line" ]; do
         [ -n "$lock_line" ] || continue
-        [[ "$lock_line" == *=* ]] || die "Ungültige Lock-Zeile: $lock_line"
+        [[ "$lock_line" == *=* ]] || die "Invalid lock line: $lock_line"
         lock_key=${lock_line%%=*}
         lock_value=${lock_line#*=}
         case "$lock_key" in
             source) locked_source=$lock_value ;;
             version) locked_version=$lock_value ;;
             commit) locked_commit=$lock_value ;;
-            *) die "Unbekannter Lock-Schlüssel: $lock_key" ;;
+            *) die "Unknown lock key: $lock_key" ;;
         esac
     done < "$lock_file"
 
     [ -n "$locked_source" ] && [ -n "$locked_version" ] && [ -n "$locked_commit" ] || \
-        die "Lock enthält nicht source, version und commit: $lock_file"
+        die "Lock does not contain source, version and commit: $lock_file"
     [[ "$locked_commit" =~ ^[0-9a-fA-F]{40}$ ]] || \
-        die "Ungültiger Lock-Commit: $locked_commit"
+        die "Invalid lock commit: $locked_commit"
     git -C "$script_root" cat-file -e "${locked_commit}^{commit}" 2>/dev/null || \
-        die "Lock-Commit ist im Template-Checkout nicht verfügbar: $locked_commit"
+        die "Lock commit is not available in the template checkout: $locked_commit"
 fi
 
 previous_file=$(mktemp)
@@ -182,22 +182,22 @@ unforceable_count=0
 
 while IFS= read -r manifest_line || [ -n "$manifest_line" ]; do
     [[ -z "$manifest_line" || "$manifest_line" == \#* ]] && continue
-    [[ "$manifest_line" == *$'\t'* ]] || die "Ungültige Manifest-Zeile: $manifest_line"
+    [[ "$manifest_line" == *$'\t'* ]] || die "Invalid manifest line: $manifest_line"
 
     strategy=${manifest_line%%$'\t'*}
     path=${manifest_line#*$'\t'}
-    [[ "$path" != *$'\t'* && -n "$path" ]] || die "Ungültige Manifest-Zeile: $manifest_line"
+    [[ "$path" != *$'\t'* && -n "$path" ]] || die "Invalid manifest line: $manifest_line"
     case "$strategy" in
         template-owned|project-config|project-owned) ;;
-        *) die "Unbekannte Manifest-Strategie: $strategy" ;;
+        *) die "Unknown manifest strategy: $strategy" ;;
     esac
-    [[ "$path" != /* && "$path" != *..* ]] || die "Unsicherer Manifest-Pfad: $path"
+    [[ "$path" != /* && "$path" != *..* ]] || die "Unsafe manifest path: $path"
     case "$path" in
-        .|./*|*/./*|*/.|*//*|*/) die "Nicht-kanonischer Manifest-Pfad: $path" ;;
+        .|./*|*/./*|*/.|*//*|*/) die "Non-canonical manifest path: $path" ;;
     esac
 
     for manifest_path in "${manifest_paths[@]}"; do
-        [ "$manifest_path" != "$path" ] || die "Doppelter Manifest-Pfad: $path"
+        [ "$manifest_path" != "$path" ] || die "Duplicate manifest path: $path"
     done
     manifest_paths+=("$path")
     manifest_strategies+=("$strategy")
@@ -206,10 +206,10 @@ while IFS= read -r manifest_line || [ -n "$manifest_line" ]; do
         validate_source_path "$path"
         source_path="$script_root/$path"
         [ -f "$source_path" ] && [ ! -L "$source_path" ] || \
-            die "Manifest-Datei fehlt oder ist kein reguläres File: $path"
+            die "Manifest file missing or not a regular file: $path"
         if ! git -C "$script_root" ls-files --error-unmatch -- "$path" >/dev/null 2>&1 \
             || ! git -C "$script_root" cat-file -e "HEAD:$path" 2>/dev/null; then
-            die "Template-owned Quelldatei ist nicht in HEAD versioniert: $path"
+            die "Template-owned source file is not versioned in HEAD: $path"
         fi
     fi
 
@@ -228,9 +228,9 @@ for index in "${!manifest_paths[@]}"; do
     path=${manifest_paths[$index]}
     source_path="$script_root/$path"
     git -C "$script_root" show "HEAD:$path" >"$previous_file" 2>/dev/null || \
-        die "Template-owned Quelldatei ist nicht in HEAD lesbar: $path"
+        die "Template-owned source file is not readable at HEAD: $path"
     cmp -s "$source_path" "$previous_file" || \
-        die "Template-owned Quelldatei weicht von HEAD ab: $path"
+        die "Template-owned source file differs from HEAD: $path"
 
     target_path="$target_root/$path"
     validate_target_path "$path"
@@ -281,7 +281,7 @@ if [ "$dry_run" -eq 1 ]; then
                 printf 'conflict: %s\n' "${action_paths[$index]}" >&2
                 ;;
             unforceable-conflict)
-                printf 'conflict (nicht überschreibbarer Konflikt): %s\n' \
+                printf 'conflict (unforceable conflict): %s\n' \
                     "${action_paths[$index]}" >&2
                 ;;
         esac
@@ -292,12 +292,12 @@ if [ "$dry_run" -eq 1 ]; then
     fi
     [ "$changes" -eq 1 ] || printf 'no changes\n'
     if [ "$unforceable_count" -gt 0 ]; then
-        printf '%s nicht überschreibbare Konflikt(e) gefunden.\n' \
+        printf '%s unforceable conflict(s) found.\n' \
             "$unforceable_count" >&2
         exit 1
     fi
     if [ "$conflict_count" -gt 0 ] && [ "$force" -ne 1 ]; then
-        printf '%s conflict(s) gefunden. Verwende --force zum Überschreiben.\n' \
+        printf '%s conflict(s) found. Use --force to overwrite.\n' \
             "$conflict_count" >&2
         exit 1
     fi
@@ -311,18 +311,18 @@ if [ "$conflict_count" -gt 0 ]; then
                 printf 'conflict: %s\n' "${action_paths[$index]}" >&2
                 ;;
             unforceable-conflict)
-                printf 'conflict (nicht überschreibbarer Konflikt): %s\n' \
+                printf 'conflict (unforceable conflict): %s\n' \
                     "${action_paths[$index]}" >&2
                 ;;
         esac
     done
     if [ "$unforceable_count" -gt 0 ]; then
-        printf '%s nicht überschreibbare Konflikt(e) gefunden.\n' \
+        printf '%s unforceable conflict(s) found.\n' \
             "$unforceable_count" >&2
         exit 1
     fi
     if [ "$force" -ne 1 ]; then
-        printf '%s conflict(s) gefunden. Verwende --force zum Überschreiben.\n' \
+        printf '%s conflict(s) found. Use --force to overwrite.\n' \
             "$conflict_count" >&2
         exit 1
     fi

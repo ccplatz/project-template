@@ -77,7 +77,7 @@ else
     release_status=$?
 fi
 assert_eq 0 "$release_status" 'template release metadata is consistent'
-assert_contains 'Template-Release' "$release_output" \
+assert_contains 'Template release' "$release_output" \
     'template release check reports the current release'
 
 real_manifest_version=0
@@ -252,10 +252,10 @@ assert_eq 0 "$real_manifest_status" 'real manifest accepts consumer configuratio
 assert_contains 'project-config: .template/project.conf' "$real_manifest_output" \
     'real manifest reports consumer configuration'
 
-assert_failure_contains 'Template-Checkout' "$real_template/bin/template-sync" \
+assert_failure_contains 'inside the template checkout' "$real_template/bin/template-sync" \
     --target "$real_template"
 mkdir -p "$real_template/nested-target"
-assert_failure_contains 'Template-Checkout' "$real_template/bin/template-sync" \
+assert_failure_contains 'inside the template checkout' "$real_template/bin/template-sync" \
     --target "$real_template/nested-target"
 rmdir "$real_template/nested-target"
 
@@ -291,7 +291,7 @@ else
 fi
 assert_eq 1 "$duplicate_status" \
     'duplicate manifest paths fail independently of strategy'
-assert_contains 'Doppelter Manifest-Pfad' "$duplicate_output" \
+assert_contains 'Duplicate manifest path' "$duplicate_output" \
     'duplicate manifest paths report a clear diagnostic'
 [ ! -e "$duplicate_target/shared.txt" ] \
     && printf 'ok - duplicate manifest paths do not copy a target file\n' \
@@ -319,7 +319,7 @@ else
 fi
 assert_eq 1 "$ignored_source_status" \
     'ignored untracked template-owned source fails synchronization'
-assert_contains 'nicht in HEAD versioniert' "$ignored_source_output" \
+assert_contains 'not versioned in HEAD' "$ignored_source_output" \
     'ignored untracked source reports missing HEAD version'
 [ ! -e "$ignored_source_target/ignored-source.txt" ] \
     && printf 'ok - ignored untracked source is not copied\n' \
@@ -342,16 +342,16 @@ assert_failure_contains 'major.minor.patch' "$template/bin/template-sync" --targ
 printf '1.2.3\n' > "$template/VERSION"
 
 printf 'template-owned\n' > "$template/template-manifest.tsv"
-assert_failure_contains 'Ungültige Manifest-Zeile' "$template/bin/template-sync" --target "$target"
+assert_failure_contains 'Invalid manifest line' "$template/bin/template-sync" --target "$target"
 printf 'template-owned\tshared.txt\ntemplate-owned\tcopy.txt\nproject-config\t.template/project.conf\nproject-owned\tapp.txt\n' \
     > "$template/template-manifest.tsv"
-assert_failure_contains 'Verwendung:' "$template/bin/template-sync" --unknown-option
+assert_failure_contains 'Usage:' "$template/bin/template-sync" --unknown-option
 
 printf 'template-owned\t../outside.txt\n' > "$template/template-manifest.tsv"
-assert_failure_contains 'Unsicherer Manifest-Pfad' "$template/bin/template-sync" --target "$target"
+assert_failure_contains 'Unsafe manifest path' "$template/bin/template-sync" --target "$target"
 for noncanonical_path in ./shared.txt dir/./shared.txt dir//shared.txt shared.txt/; do
     printf 'template-owned\t%s\n' "$noncanonical_path" > "$template/template-manifest.tsv"
-    assert_failure_contains 'Nicht-kanonischer Manifest-Pfad' \
+    assert_failure_contains 'Non-canonical manifest path' \
         "$template/bin/template-sync" --target "$target"
 done
 printf 'template-owned\tshared.txt\ntemplate-owned\tcopy.txt\nproject-config\t.template/project.conf\nproject-owned\tapp.txt\n' \
@@ -373,7 +373,7 @@ else
 fi
 assert_eq 1 "$dirty_source_status" \
     'dirty template source prevents synchronization'
-assert_contains 'sauber' "$dirty_source_output" \
+assert_contains 'clean' "$dirty_source_output" \
     'dirty template source reports a clear checkout diagnostic'
 [ ! -e "$target/shared.txt" ] \
     && printf 'ok - dirty source does not copy template-owned files\n' \
@@ -567,7 +567,7 @@ git_init "$symlink_target"
 ln -s "$outside/sentinel" "$symlink_target/shared.txt"
 git -C "$symlink_target" add .
 git -C "$symlink_target" commit -q -m 'target final symlink'
-assert_failure_contains 'Unsicherer Zielpfad' "$template/bin/template-sync" \
+assert_failure_contains 'Unsafe target path' "$template/bin/template-sync" \
     --target "$symlink_target" --force
 assert_eq 'outside sentinel' "$(<"$outside/sentinel")" \
     'force never writes through a final target symlink'
@@ -581,7 +581,7 @@ git_init "$intermediate_target"
 ln -s "$outside" "$intermediate_target/nested"
 git -C "$intermediate_target" add .
 git -C "$intermediate_target" commit -q -m 'target intermediate symlink'
-assert_failure_contains 'Unsicherer Zielpfad' "$template/bin/template-sync" \
+assert_failure_contains 'Unsafe target path' "$template/bin/template-sync" \
     --target "$intermediate_target" --force
 [ ! -e "$intermediate_target/shared.txt" ] \
     && printf 'ok - intermediate target symlink prevents all copies\n' \
@@ -593,7 +593,7 @@ git_init "$lock_directory_target"
 ln -s "$outside" "$lock_directory_target/.template"
 git -C "$lock_directory_target" add .
 git -C "$lock_directory_target" commit -q -m 'target lock directory symlink'
-assert_failure_contains 'Unsicherer Zielpfad' "$template/bin/template-sync" \
+assert_failure_contains 'Unsafe target path' "$template/bin/template-sync" \
     --target "$lock_directory_target" --force
 [ ! -e "$outside/template.lock" ] \
     && printf 'ok - lock directory symlink prevents lock writes\n' \
@@ -605,7 +605,7 @@ git_init "$lock_file_target"
 ln -s "$outside/template.lock" "$lock_file_target/.template/template.lock"
 git -C "$lock_file_target" add .
 git -C "$lock_file_target" commit -q -m 'target lock file symlink'
-assert_failure_contains 'Unsicherer Zielpfad' "$template/bin/template-sync" \
+assert_failure_contains 'Unsafe target path' "$template/bin/template-sync" \
     --target "$lock_file_target" --force
 [ ! -e "$outside/template.lock" ] \
     && printf 'ok - lock file symlink prevents lock writes\n' \
@@ -617,7 +617,7 @@ printf 'directory target sentinel\n' > "$directory_target/.target"
 git_init "$directory_target"
 git -C "$directory_target" add .
 git -C "$directory_target" commit -q -m 'target directory at template file path'
-assert_failure_contains 'nicht überschreibbarer Konflikt' "$template/bin/template-sync" \
+assert_failure_contains 'unforceable conflict' "$template/bin/template-sync" \
     --target "$directory_target" --force
 [ -d "$directory_target/shared.txt" ] \
     && printf 'ok - force leaves directory target intact\n' \
@@ -635,7 +635,7 @@ printf 'source intermediate target sentinel\n' > "$source_intermediate_target/.t
 git_init "$source_intermediate_target"
 git -C "$source_intermediate_target" add .
 git -C "$source_intermediate_target" commit -q -m 'source intermediate symlink target'
-assert_failure_contains 'Unsicherer Quellpfad' "$template/bin/template-sync" \
+assert_failure_contains 'Unsafe source path' "$template/bin/template-sync" \
     --target "$source_intermediate_target" --force
 [ ! -e "$source_intermediate_target/shared.txt" ] \
     && printf 'ok - source intermediate symlink prevents all copies\n' \

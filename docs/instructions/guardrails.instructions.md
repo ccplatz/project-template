@@ -24,25 +24,25 @@ The following is **never** allowed — no exceptions:
 - Never put business logic in Controllers — always Form Request → Service → Resource
 - Never use `Gate::` or `$this->authorize()` inline — always Policies
 - Never use `response()->json()` or return raw models — always API Resources
-- <!-- TODO: Weitere Architektur-Regeln, z.B. Caching-Strategie, Queue-Nutzung, Event-Sourcing-Verbot -->
+- <!-- TODO: Further architecture rules, e.g. caching strategy, queue usage, event-sourcing ban -->
 
 ### Frontend
 
-<!-- TODO: Frontend-Technologie (React, Vue, Alpine, etc.) und Regeln -->
+<!-- TODO: Frontend technology (React, Vue, Alpine, etc.) and rules -->
 
 - Never use inline `style` props — utility classes only
 - Never use `any` in TypeScript — use `unknown` and narrow it down
-- <!-- TODO: Weitere Frontend-Regeln, z.B. "Never use 'let' when 'const' works", "No default exports" -->
+- <!-- TODO: Further frontend rules, e.g. "Never use 'let' when 'const' works", "No default exports" -->
 
 ### API
 
-<!-- TODO: API-Konventionen, z.B. Datums- und Zahlenformatierung, HTTP-Statuscodes -->
+<!-- TODO: API conventions, e.g. date and number formatting, HTTP status codes -->
 
 ### Documentation
 
-- All documentation files (AGENTS.md, instructions, superpowers specs/plans) are written in **English**
+- All documentation files (AGENTS.md, instructions) are written in **English**
 - Code comments are written in **English**
-- <!-- TODO: Sprichst du eine andere UI-Sprache? Hier dokumentieren -->
+- <!-- TODO: Do you use a different UI language? Document it here -->
 
 ---
 
@@ -53,7 +53,7 @@ The agent must always follow these patterns:
 ### Controller
 Controller delegates immediately to Service, returns Resource:
 
-<!-- TODO: ggf. anpassen (z.B. andere Namenskonventionen) -->
+<!-- TODO: adjust if needed (e.g. other naming conventions) -->
 
 ```php
 public function store(StoreFooRequest $request): FooResource
@@ -75,7 +75,7 @@ public function create(array $data): Model
 ### API Client (Frontend)
 All API calls through dedicated service modules:
 
-<!-- TODO: ggf. anpassen an Framework (Vue composables, React hooks, etc.) -->
+<!-- TODO: adjust to the framework if needed (Vue composables, React hooks, etc.) -->
 
 ```ts
 // src/services/fooService.ts
@@ -114,13 +114,13 @@ Examples:
 
 Run in this order before claiming completion:
 
-1. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail artisan test` — PHPUnit (feature + unit)
-2. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail composer check` — PHPStan + Pint (format)
-3. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend-Tests (Vitest o.ä.) -->
-4. `COMPOSE_PROJECT_NAME=<PROJEKTNAME> ./vendor/bin/sail npm run check` — ESLint + TypeScript + Prettier
-5. `npm run test:e2e` — <!-- TODO: E2E-Tests (Playwright o.ä.), nur auf dem Host -->
+1. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail artisan test` — PHPUnit (feature + unit)
+2. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail composer check` — PHPStan + Pint (format)
+3. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend tests (Vitest or similar) -->
+4. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail npm run check` — ESLint + TypeScript + Prettier
+5. `npm run test:e2e` — <!-- TODO: E2E tests (Playwright or similar), host only -->
 
-<!-- TODO: PHPStan-Level und andere Qualitätsregeln hier dokumentieren -->
+<!-- TODO: Document the PHPStan level and other quality rules here -->
 
 ---
 

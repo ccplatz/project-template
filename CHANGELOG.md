@@ -2,6 +2,18 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- Translate all German user-facing output, comments, and documentation to
+  English; all scripts, tests, and docs are now fully English.
+- Remove `docs/superpowers/plans/` and `docs/superpowers/specs/` from the
+  template repository; the directories stay Git-ignored so no new plan or spec
+  files can enter the template.
+- Rename `<PROJEKTNAME>` and `<PROJEKTNAME_ANZEIGE>` placeholders to
+  `<PROJECT_NAME>` and `<PROJECT_DISPLAY_NAME>`.
+
 ## [0.4.4] - 2026-08-13
 
 ### Added

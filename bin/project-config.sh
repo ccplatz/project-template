@@ -9,20 +9,20 @@ load_project_config() {
     unset PROJECT_NAME WORKTREE_PORT_PROFILE WORKTREE_PORT_STRIDE WORKTREE_ENV_TEMPLATE
 
     if [ ! -f "$config_file" ]; then
-        printf 'Projektkonfiguration fehlt: %s\n' "$config_file" >&2
+        printf 'Project configuration missing: %s\n' "$config_file" >&2
         return 1
     fi
 
     # Project-local configuration is trusted shell code by design.
     # shellcheck source=/dev/null
     if ! source "$config_file"; then
-        printf 'Projektkonfiguration konnte nicht geladen werden: %s\n' "$config_file" >&2
+        printf 'Could not load project configuration: %s\n' "$config_file" >&2
         return 1
     fi
 
     case "${PROJECT_NAME:-}" in
         ''|[!A-Za-z0-9]*|*[!A-Za-z0-9_.-]*)
-            printf 'Ungültiger PROJECT_NAME in %s. Erlaubt sind nur alphanumerische Zeichen sowie ., _ und -.\n' \
+            printf 'Invalid PROJECT_NAME in %s. Only alphanumeric characters plus ., _ and - are allowed.\n' \
                 "$config_file" >&2
             return 1
             ;;
@@ -52,7 +52,7 @@ load_project_config() {
 
             case "$profile_entry" in
                 ''|*'=')
-                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    printf 'Invalid WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
                     return 1
                     ;;
                 *=*)
@@ -60,38 +60,38 @@ load_project_config() {
                     profile_base=${profile_entry#*=}
                     ;;
                 *)
-                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    printf 'Invalid WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
                     return 1
                     ;;
             esac
 
             case "$profile_name" in
                 ''|*[!a-z0-9_]*)
-                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    printf 'Invalid WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
                     return 1
                     ;;
             esac
 
             case "$profile_base" in
                 ''|*[!0-9]*)
-                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    printf 'Invalid WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
                     return 1
                     ;;
                 [1-9]*)
                     if [ "${#profile_base}" -gt 5 ] || [ "$profile_base" -gt 65535 ]; then
-                        printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                        printf 'Invalid WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
                         return 1
                     fi
                     ;;
                 *)
-                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    printf 'Invalid WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
                     return 1
                     ;;
             esac
 
             case "$seen_names" in
                 *"|${profile_name}|"*)
-                    printf 'Ungültiger WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
+                    printf 'Invalid WORKTREE_PORT_PROFILE in %s.\n' "$config_file" >&2
                     return 1
                     ;;
             esac
@@ -103,12 +103,12 @@ load_project_config() {
 
     case "$configured_stride" in
         ''|*[!0-9]*)
-            printf 'Ungültiger WORKTREE_PORT_STRIDE in %s.\n' "$config_file" >&2
+            printf 'Invalid WORKTREE_PORT_STRIDE in %s.\n' "$config_file" >&2
             return 1
             ;;
         [1-9]*) ;;
         *)
-            printf 'Ungültiger WORKTREE_PORT_STRIDE in %s.\n' "$config_file" >&2
+            printf 'Invalid WORKTREE_PORT_STRIDE in %s.\n' "$config_file" >&2
             return 1
             ;;
     esac
@@ -123,7 +123,7 @@ load_project_config() {
 
 project_config_name() {
     if [ "${PROJECT_CONFIG_LOADED:-0}" -ne 1 ]; then
-        printf 'Projektkonfiguration wurde nicht geladen.\n' >&2
+        printf 'Project configuration was not loaded.\n' >&2
         return 1
     fi
     printf '%s\n' "$PROJECT_NAME"

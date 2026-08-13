@@ -522,7 +522,7 @@ printf '%s\n' \
     'WORKTREE_PORT_FRONTEND=19001' \
     'WORKTREE_PORT_DATABASE=19002' \
     'WORKTREE_PORT_CACHE=19003' > "$state_dir/leading-zero.env"
-assert_failure_contains 'dezimal und gültig' load_worktree_state leading-zero
+assert_failure_contains 'decimal and valid' load_worktree_state leading-zero
 rm -f "$state_dir/leading-zero.env"
 
 custom_root=$(mktemp -d)
@@ -695,7 +695,7 @@ printf '%s\n' \
     'WORKTREE_PORT_CACHE=6379' \
     'UNEXPECTED=reject-me' > "$state_dir/malformed-state.env"
 : > "$consumer_log"
-assert_failure_contains 'ungültiger Worktree-Zustand' \
+assert_failure_contains 'invalid worktree state' \
     start_for_worktree malformed-state "$repo/.worktrees/malformed-state"
 assert_not_contains "$consumer_log" 'HOOK=start'
 git -C "$repo" worktree remove -f "$repo/.worktrees/malformed-state"
@@ -709,12 +709,12 @@ printf '%s\n' \
     'WORKTREE_PORT_FRONTEND=5173' \
     'WORKTREE_PORT_DATABASE=3306' \
     'WORKTREE_PORT_CACHE=6379' > "$state_dir/duplicate-state.env"
-assert_failure_contains 'doppelter Schlüssel WORKTREE_PORT_HTTP' \
+assert_failure_contains 'duplicate key WORKTREE_PORT_HTTP' \
     load_worktree_state duplicate-state
 rm -f "$state_dir/duplicate-state.env"
 
 PROJECT_NAME=Bad.Name
-assert_failure_contains 'ungültiger Worktree-Instanzname' \
+assert_failure_contains 'invalid worktree instance name' \
     ensure_worktree_state bad-project "$repo/.worktrees/feature-x"
 PROJECT_NAME=test-project
 assert_not_exists "$repo/.worktrees/.state/bad-project.env"
@@ -726,7 +726,7 @@ rm -f "$repo/.worktrees/lock-test/.env" "$repo/.worktrees/lock-test/.env.templat
 lock_dir="$state_dir/.allocation-lock"
 mkdir -p "$lock_dir"
 printf '%s\n' "$$" > "$lock_dir/pid"
-assert_failure_contains 'Portzuweisung läuft bereits' \
+assert_failure_contains 'Port allocation is already running' \
     ensure_worktree_state lock-test "$repo/.worktrees/lock-test"
 assert_contains "$lock_dir/pid" "$$"
 
@@ -1021,9 +1021,9 @@ fi
 git -C "$repo" worktree prune
 rm -f "$repo/.worktrees/.state/registered-orphan.env"
 
-assert_failure_contains 'Verwendung:' run_command create feature-z --fresh
-assert_failure_contains 'Verwendung:' run_command status feature-y --all
-assert_failure_contains 'Verwendung:' run_command reset feature-y --fresh
+assert_failure_contains 'Usage:' run_command create feature-z --fresh
+assert_failure_contains 'Usage:' run_command status feature-y --all
+assert_failure_contains 'Usage:' run_command reset feature-y --fresh
 
 if [ "$failures" -ne 0 ]; then
     printf '%s test(s) failed\n' "$failures"

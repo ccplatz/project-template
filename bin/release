@@ -1,17 +1,17 @@
 #!/bin/bash
-# bin/release — lege eine neue Template-Version an.
+# bin/release — create a new template version.
 #
-# Verwendung:
-#   bin/release [patch|minor|major]   # Standard: patch
+# Usage:
+#   bin/release [patch|minor|major]   # default: patch
 #
-# Voraussetzungen:
-#   - sauberes Arbeitsverzeichnis (alles committet)
-#   - CHANGELOG.md hat an der Spitze eine "## [Unreleased]"-Sektion
+# Requirements:
+#   - clean working directory (everything committed)
+#   - CHANGELOG.md has a "## [Unreleased]" section at the top
 #
-# Erstellt: VERSION-Bump, CHANGELOG-Header, Version-Sync in
-# tests/bin/template_sync_test.sh, Commit ("release: bump template to X.Y.Z"),
-# Konsistenzprüfung mit bin/template-release-check (bei Fehler Rollback des
-# Commits) und anschließend annotierten Tag vX.Y.Z.
+# Creates: VERSION bump, CHANGELOG header, version sync in
+# tests/bin/template_sync_test.sh, commit ("release: bump template to X.Y.Z"),
+# consistency check with bin/template-release-check (rollback of the commit on
+# failure) and afterwards an annotated tag vX.Y.Z.
 
 set -euo pipefail
 
@@ -22,27 +22,27 @@ die() {
 
 bump_type=${1:-patch}
 root=$(git rev-parse --show-toplevel 2>/dev/null) || \
-    die 'Aktuelles Verzeichnis ist kein Git-Repository.'
+    die 'Current directory is not a Git repository.'
 
-[ -f "$root/VERSION" ] || die "VERSION fehlt: $root/VERSION"
-[ -f "$root/CHANGELOG.md" ] || die "CHANGELOG.md fehlt: $root/CHANGELOG.md"
+[ -f "$root/VERSION" ] || die "VERSION missing: $root/VERSION"
+[ -f "$root/CHANGELOG.md" ] || die "CHANGELOG.md missing: $root/CHANGELOG.md"
 
 old_version=$(<"$root/VERSION")
 [[ "$old_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
-    die "VERSION muss major.minor.patch entsprechen: $old_version"
+    die "VERSION must match major.minor.patch: $old_version"
 
 case "$bump_type" in
     patch|minor|major) ;;
-    *) die "Ungültiger Bump-Typ: $bump_type (patch|minor|major)" ;;
+    *) die "Invalid bump type: $bump_type (patch|minor|major)" ;;
 esac
 
 tree_status=$(git -C "$root" status --porcelain --untracked-files=normal 2>/dev/null) || \
-    die 'Der Zustand des Arbeitsverzeichnisses konnte nicht geprüft werden.'
+    die 'Could not check the working directory state.'
 [ -z "$tree_status" ] || \
-    die 'Arbeitsverzeichnis ist nicht sauber; committe oder stashe zuerst.'
+    die 'Working directory is not clean; commit or stash first.'
 
 grep -qx '## \[Unreleased\]' "$root/CHANGELOG.md" || \
-    die 'CHANGELOG.md braucht eine "## [Unreleased]"-Sektion an der Spitze.'
+    die 'CHANGELOG.md needs a "## [Unreleased]" section at the top.'
 
 new_version=$(awk -F. -v part="$bump_type" '
     BEGIN { OFS = "." }
@@ -65,9 +65,9 @@ printf '%s\n' "$new_version" > "$root/VERSION"
 
 escaped_old=${old_version//./\\.}
 [ -f "$root/tests/bin/template_sync_test.sh" ] || \
-    die 'tests/bin/template_sync_test.sh fehlt für die Version-Synchronisation.'
-# Nur template_sync_test.sh assertiert die echte Repo-VERSION; die Fixtures in
-# release_test.sh bleiben absolut und werden deshalb nicht synchronisiert.
+    die 'tests/bin/template_sync_test.sh missing for the version sync.'
+# Only template_sync_test.sh asserts the real repo VERSION; the fixtures in
+# release_test.sh stay absolute and are therefore not synchronized.
 sed -i "s/$escaped_old/$new_version/g" "$root/tests/bin/template_sync_test.sh"
 
 git -C "$root" add VERSION CHANGELOG.md tests/bin/template_sync_test.sh
@@ -75,10 +75,10 @@ git -C "$root" commit -q -m "release: bump template to $new_version"
 
 if ! "$root/bin/template-release-check" "$root"; then
     git -C "$root" reset --hard HEAD~1 >/dev/null
-    die 'Konsistenzprüfung fehlgeschlagen; Release-Commit wurde zurückgesetzt.'
+    die 'Consistency check failed; the release commit was rolled back.'
 fi
 
 git -C "$root" tag -a "v$new_version" -m "Template $new_version"
 
-printf 'Release %s erstellt (Tag v%s). Push mit: git push --tags\n' \
+printf 'Release %s created (tag v%s). Push with: git push --tags\n' \
     "$new_version" "$new_version"

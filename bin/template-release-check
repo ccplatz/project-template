@@ -8,27 +8,27 @@ die() {
 }
 
 if [ "$#" -gt 1 ]; then
-    die 'Verwendung: bin/template-release-check [template-root]'
+    die 'Usage: bin/template-release-check [template-root]'
 fi
 
 if [ "$#" -eq 1 ]; then
-    root=$(cd "$1" 2>/dev/null && pwd -P) || die "Template-Root fehlt: $1"
+    root=$(cd "$1" 2>/dev/null && pwd -P) || die "Template root missing: $1"
 else
     root=$(git rev-parse --show-toplevel 2>/dev/null) || \
-        die 'Aktuelles Verzeichnis ist kein Git-Repository.'
+        die 'Current directory is not a Git repository.'
 fi
 
 version_file="$root/VERSION"
 changelog_file="$root/CHANGELOG.md"
 manifest_file="$root/template-manifest.tsv"
 
-[ -f "$version_file" ] || die "VERSION fehlt: $version_file"
-[ -f "$changelog_file" ] || die "CHANGELOG.md fehlt: $changelog_file"
-[ -f "$manifest_file" ] || die "Manifest fehlt: $manifest_file"
+[ -f "$version_file" ] || die "VERSION missing: $version_file"
+[ -f "$changelog_file" ] || die "CHANGELOG.md missing: $changelog_file"
+[ -f "$manifest_file" ] || die "Manifest missing: $manifest_file"
 
 version=$(<"$version_file")
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
-    die "VERSION muss major.minor.patch entsprechen: $version"
+    die "VERSION must match major.minor.patch: $version"
 
 changelog_version=$(awk '
     match($0, /^## \[([0-9]+\.[0-9]+\.[0-9]+)\]/, match_data) {
@@ -37,10 +37,10 @@ changelog_version=$(awk '
     }
 ' "$changelog_file")
 [ "$changelog_version" = "$version" ] || \
-    die "CHANGELOG-Version $changelog_version stimmt nicht mit VERSION $version überein."
+    die "CHANGELOG version $changelog_version does not match VERSION $version."
 
 version_commit=$(git -C "$root" log -1 --format=%H -- VERSION 2>/dev/null) || true
-[ -n "$version_commit" ] || die 'VERSION ist noch nicht in Git versioniert.'
+[ -n "$version_commit" ] || die 'VERSION is not yet versioned in Git.'
 
 changed_paths=$(
     {
@@ -71,11 +71,11 @@ while IFS= read -r changed_path; do
 done <<< "$changed_paths"
 
 if [ -n "$template_change" ] && { [ "$version_changed" -ne 1 ] || [ "$changelog_changed" -ne 1 ]; }; then
-    die "Release-Version fehlt: $template_change wurde seit der letzten VERSION-Änderung geändert."
+    die "Release version missing: $template_change changed since the last VERSION change."
 fi
 
 if [ "$version_changed" -ne "$changelog_changed" ]; then
-    die 'VERSION und CHANGELOG.md müssen gemeinsam geändert werden.'
+    die 'VERSION and CHANGELOG.md must be changed together.'
 fi
 
-printf 'Template-Release %s ist konsistent.\n' "$version"
+printf 'Template release %s is consistent.\n' "$version"
