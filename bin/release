@@ -8,9 +8,10 @@
 #   - sauberes Arbeitsverzeichnis (alles committet)
 #   - CHANGELOG.md hat an der Spitze eine "## [Unreleased]"-Sektion
 #
-# Erstellt: VERSION-Bump, CHANGELOG-Header, Version-Sync in tests/bin,
-# Commit ("release: bump template to X.Y.Z"), annotierten Tag vX.Y.Z und
-# prüft danach die Konsistenz mit bin/template-release-check.
+# Erstellt: VERSION-Bump, CHANGELOG-Header, Version-Sync in
+# tests/bin/template_sync_test.sh, Commit ("release: bump template to X.Y.Z"),
+# Konsistenzprüfung mit bin/template-release-check (bei Fehler Rollback des
+# Commits) und anschließend annotierten Tag vX.Y.Z.
 
 set -euo pipefail
 
@@ -35,10 +36,12 @@ case "$bump_type" in
     *) die "Ungültiger Bump-Typ: $bump_type (patch|minor|major)" ;;
 esac
 
-git -C "$root" diff --quiet HEAD || \
+tree_status=$(git -C "$root" status --porcelain --untracked-files=normal 2>/dev/null) || \
+    die 'Der Zustand des Arbeitsverzeichnisses konnte nicht geprüft werden.'
+[ -z "$tree_status" ] || \
     die 'Arbeitsverzeichnis ist nicht sauber; committe oder stashe zuerst.'
 
-grep -q '^## \[Unreleased\]' "$root/CHANGELOG.md" || \
+grep -qx '## \[Unreleased\]' "$root/CHANGELOG.md" || \
     die 'CHANGELOG.md braucht eine "## [Unreleased]"-Sektion an der Spitze.'
 
 new_version=$(awk -F. -v part="$bump_type" '
@@ -61,15 +64,21 @@ mv "$root/CHANGELOG.md.tmp" "$root/CHANGELOG.md"
 printf '%s\n' "$new_version" > "$root/VERSION"
 
 escaped_old=${old_version//./\\.}
+[ -f "$root/tests/bin/template_sync_test.sh" ] || \
+    die 'tests/bin/template_sync_test.sh fehlt für die Version-Synchronisation.'
 # Nur template_sync_test.sh assertiert die echte Repo-VERSION; die Fixtures in
 # release_test.sh bleiben absolut und werden deshalb nicht synchronisiert.
 sed -i "s/$escaped_old/$new_version/g" "$root/tests/bin/template_sync_test.sh"
 
-git -C "$root" add VERSION CHANGELOG.md tests/bin
+git -C "$root" add VERSION CHANGELOG.md tests/bin/template_sync_test.sh
 git -C "$root" commit -q -m "release: bump template to $new_version"
-git -C "$root" tag -a "v$new_version" -m "Template $new_version"
 
-"$root/bin/template-release-check" "$root"
+if ! "$root/bin/template-release-check" "$root"; then
+    git -C "$root" reset --hard HEAD~1 >/dev/null
+    die 'Konsistenzprüfung fehlgeschlagen; Release-Commit wurde zurückgesetzt.'
+fi
+
+git -C "$root" tag -a "v$new_version" -m "Template $new_version"
 
 printf 'Release %s erstellt (Tag v%s). Push mit: git push --tags\n' \
     "$new_version" "$new_version"
