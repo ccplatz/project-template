@@ -158,6 +158,16 @@ assert_file_contains "$script_dir/../../docs/worktree.md" 'WORKTREE_PORT_PROFILE
     'worktree documentation defines generic managed ports'
 assert_file_contains "$script_dir/../../docs/runtime-hooks.md" 'WORKTREE_PORT_<PROFILE>' \
     'runtime hook documentation defines generic port context'
+assert_file_contains "$script_dir/../../docs/runtime-hooks.md" \
+    'Persistent Compose Resources' \
+    'runtime hook documentation defines persistent Compose resource pinning'
+assert_file_contains "$script_dir/../../docs/runtime-hooks.md" 'container_name' \
+    'runtime hook documentation requires fixed container names'
+assert_file_contains "$script_dir/../../docs/runtime-hooks.md" 'docker volume' \
+    'runtime hook documentation requires the volume existence guard'
+assert_file_contains "$script_dir/../../.opencode/skills/consumer-runtime-adapter/SKILL.md" \
+    'container_name' \
+    'consumer adapter skill documents the Compose identity guard'
 for contract_file in README.md docs/runtime-hooks.md; do
     assert_file_contains "$script_dir/../../$contract_file" 'bin/consumer' \
         "$contract_file documents the consumer adapter"

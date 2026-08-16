@@ -137,3 +137,66 @@ stop)  docker compose down ;;
 The same isolation and idempotence rules apply. The Orchestrator provides the
 generic context; the consumer owns the Compose project identity and command
 mapping.
+
+## Persistent Compose Resources
+
+Consumer Compose stacks pin their project identity to the isolated Worktree
+instance:
+
+```sh
+export COMPOSE_PROJECT_NAME=$WORKTREE_INSTANCE_NAME
+```
+
+`WORKTREE_INSTANCE_NAME` derives from `PROJECT_NAME` in
+`.template/project.conf`, which is independent of the directory or repository
+name. For every unnamed persistent resource, Compose derives the runtime name
+from the project name as `<project>_<resource>`. When the pinned project name
+differs from the one used when the stack was first created — for example after
+a rename or a fresh `.template/project.conf` — `up` silently creates empty new
+volumes and private networks while `down` no longer matches the running
+containers: data appears to be gone, and cleanup silently does nothing.
+
+**Rule:** persistent resources in consumer Compose files — named volumes and
+private networks — MUST be pinned with `name:`. The `name:` is a fixed,
+project-independent identifier and must never be derived from the project
+name:
+
+```yaml
+# Wrong: Compose creates "<project>_db_data". Renaming the project orphans the
+# data and a new, empty volume appears.
+volumes:
+  db_data: {}
+
+# Right: the volume is always "consumption_db_data", regardless of the project.
+volumes:
+  db_data:
+    name: consumption_db_data
+```
+
+## Recommended Compose Guards
+
+The same project-identity pinning enables silent failures: `start` may create
+a fresh, empty stack next to an existing one, and `stop` may match nothing
+while the stack is still running. The adapter should guard both directions and
+give services fixed, project-independent container names:
+
+```yaml
+services:
+  app:
+    container_name: consumption_app
+```
+
+- **Before `start`:** verify that every declared named volume exists
+  (`docker volume inspect <name>`). If a volume is missing while the
+  project-prefixed equivalent exists (for example `<old_project>_db_data`),
+  warn explicitly — do not let Compose create an empty volume silently.
+- **Before `start`:** check that no container with the expected fixed
+  `container_name:` values is already running. If the stack is running, do not
+  start a second, empty one; print a diagnostic that names the running
+  containers and the identity mismatch instead.
+- **Before `stop`/`down`:** if no container with the expected names is running
+  but other Compose containers exist, warn that no stack was found under the
+  pinned project identity instead of exiting silently.
+
+These guards fail loudly with a message that identifies the mismatch and the
+fix (check `COMPOSE_PROJECT_NAME` and `.template/project.conf`).

@@ -53,7 +53,18 @@ controlled environment:
    Worktree, and must never use a shared PID file or stop another Worktree's
    processes.
 
-5. **Test the adapter with mocked external commands.** Write shell tests that
+5. **Guard the Compose project identity.** Pin `COMPOSE_PROJECT_NAME` to
+   `WORKTREE_INSTANCE_NAME`; never derive it from the directory name. In the
+   consumer's Compose files, pin every persistent resource — named volumes
+   and private networks — with `name:` and every service with
+   `container_name:`; both are fixed, project-independent identifiers (see
+   `docs/runtime-hooks.md`). Before `start`, verify that the declared named
+   volumes exist and that no container with the pinned names is running;
+   before `stop`/`down`, warn when no container matches the pinned identity.
+   Always fail loudly with a diagnostic that names the mismatch and the fix —
+   never let Compose create an empty stack or silently do nothing.
+
+6. **Test the adapter with mocked external commands.** Write shell tests that
    replace `sail`, `composer`, `npm`, `artisan`, and `docker` with mock
    executables. Assert the exact command lines, the exported environment, the
    working directory, exit-code propagation, unsupported-optional-hook status
@@ -68,6 +79,12 @@ controlled environment:
   Livewire, workers) runs only through the adapter.
 - The adapter reads only the documented `WORKTREE_*` context and never assumes
   variables from the caller's environment.
+- `COMPOSE_PROJECT_NAME` is pinned to `WORKTREE_INSTANCE_NAME`; Compose files
+  pin `name:` for every volume and private network and `container_name:` for
+  every service.
+- `start` and `stop` detect project-identity mismatches (missing volumes,
+  running containers under another identity) and print a clear warning
+  instead of failing silently.
 - All adapter tests pass with mocked external commands.
 - The template-owned Worktree implementation and `docs/runtime-hooks.md` are
   not modified by the adapter work.

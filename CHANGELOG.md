@@ -2,6 +2,19 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Document the Compose project-identity rule for consumer adapters in
+  `docs/runtime-hooks.md` and the `consumer-runtime-adapter` skill: persistent
+  resources (named volumes, private networks) must be pinned with `name:` and
+  services with `container_name:`, and `start`/`stop` must warn about
+  project-identity mismatches (missing volumes, running containers under
+  another identity) instead of failing silently.
+- Extend `tests/bin/template_sync_test.sh` with assertions that the pinned
+  resource and guard rules stay documented.
+
 ## [0.4.7] - 2026-08-13
 
 ### Fixed
