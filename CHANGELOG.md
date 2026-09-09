@@ -2,6 +2,20 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Add the `template-internal` manifest strategy for versioned and
+  release-gated files that are never synchronized into consumers
+  (`bin/release`, `bin/template-release-check`, `VERSION`, `CHANGELOG.md`,
+  `tests/bin/release_test.sh`, `tests/bin/template_release_test.sh`).
+- Stop synchronizing release tooling into consumers; `bin/template-sync`
+  validates `template-internal` files but never copies them.
+- Guard `bin/release` against consumer checkouts: it refuses to run when
+  `.template/template.lock` is present.
+- Scope the release workflow documentation to the template repository.
+
 ## [0.4.8] - 2026-08-16
 
 ### Added

@@ -24,6 +24,9 @@ bump_type=${1:-patch}
 root=$(git rev-parse --show-toplevel 2>/dev/null) || \
     die 'Current directory is not a Git repository.'
 
+[ ! -e "$root/.template/template.lock" ] && [ ! -L "$root/.template/template.lock" ] || \
+    die 'must not run in a consumer checkout (template.lock present)'
+
 [ -f "$root/VERSION" ] || die "VERSION missing: $root/VERSION"
 [ -f "$root/CHANGELOG.md" ] || die "CHANGELOG.md missing: $root/CHANGELOG.md"
 

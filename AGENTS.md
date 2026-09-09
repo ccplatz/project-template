@@ -73,7 +73,7 @@ them directly. Adjust them to your consumer's runtime.
 3. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend tests (Vitest or similar) -->
 4. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail npm run check` — ESLint + TypeScript + Prettier
 5. `npm run test:e2e` — <!-- TODO: E2E tests (Playwright or similar), host only -->
-6. Present a release proposal (version type + CHANGELOG summary) and wait for
+6. Template-only (project-template repo, never in a consumer): Present a release proposal (version type + CHANGELOG summary) and wait for
    approval; run `./bin/release <patch|minor|major>` only after explicit
    confirmation (see Release workflow below).
 
@@ -100,9 +100,9 @@ them directly. Adjust them to your consumer's runtime.
 - `resources/js/services/` — API service modules
 - `routes/api.php` — REST API
 
-## Release-Workflow
+## Release-Workflow — Template-only (project-template repo, never in a consumer):
 
-Before any push, a new version is created whenever template-owned files were
+Template-only (project-template repo, never in a consumer): Before any push, a new version is created whenever template-owned files were
 changed (see `template-manifest.tsv`). Releases go through a Human Gate — they
 are never triggered automatically or silently:
 

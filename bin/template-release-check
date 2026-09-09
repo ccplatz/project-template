@@ -62,7 +62,7 @@ while IFS= read -r changed_path; do
 
     while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
         [ "$path" = "$changed_path" ] || continue
-        if [ "$strategy" = template-owned ]; then
+        if [ "$strategy" = template-owned ] || [ "$strategy" = template-internal ]; then
             template_change=$changed_path
         fi
         break

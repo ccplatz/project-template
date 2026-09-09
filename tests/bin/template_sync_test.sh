@@ -29,6 +29,20 @@ assert_contains() {
     esac
 }
 
+assert_not_contains() {
+    local unexpected=$1 actual=$2 message=${3:-output does not contain unexpected text}
+    case "$actual" in
+        *"$unexpected"*)
+            printf 'not ok - %s\nunexpected content: %s\nactual: %s\n' \
+                "$message" "$unexpected" "$actual" >&2
+            failures=$((failures + 1))
+            ;;
+        *)
+            printf 'ok - %s\n' "$message"
+            ;;
+    esac
+}
+
 assert_file_contains() {
     local file=$1 expected=$2 message=${3:-file contains expected text}
     if [ ! -f "$file" ]; then
@@ -93,10 +107,10 @@ real_manifest_container_lib=0
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     [[ -z "${strategy:-}" || "$strategy" == \#* ]] && continue
     if [ "$path" = VERSION ]; then
-        real_manifest_version=1
+        [ "$strategy" = template-internal ] && real_manifest_version=1
     fi
     if [ "$path" = CHANGELOG.md ]; then
-        [ "$strategy" = template-owned ] && real_manifest_changelog=1
+        [ "$strategy" = template-internal ] && real_manifest_changelog=1
     fi
     if [ "$path" = docs/template-sync.md ]; then
         [ "$strategy" = template-owned ] && real_manifest_sync_docs=1
@@ -122,14 +136,14 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     if [ "$path" = bin/container-lib.sh ] && [ "$strategy" = template-owned ]; then
         real_manifest_container_lib=1
     fi
-    if [ "$strategy" = template-owned ] \
+    if { [ "$strategy" = template-owned ] || [ "$strategy" = template-internal ]; } \
         && { [ ! -f "$script_dir/../../$path" ] || [ -L "$script_dir/../../$path" ]; }; then
         printf 'not ok - real manifest path exists: %s\n' "$path" >&2
         failures=$((failures + 1))
     fi
 done < "$manifest"
-assert_eq 1 "$real_manifest_version" 'real manifest includes VERSION'
-assert_eq 1 "$real_manifest_changelog" 'real manifest includes template-owned CHANGELOG.md'
+assert_eq 1 "$real_manifest_version" 'real manifest includes template-internal VERSION'
+assert_eq 1 "$real_manifest_changelog" 'real manifest includes template-internal CHANGELOG.md'
 assert_eq 1 "$real_manifest_sync_docs" \
     'real manifest includes template-owned docs/template-sync.md'
 assert_eq 1 "$real_manifest_worktree_docs" \
@@ -238,7 +252,7 @@ real_template="$root/real-template"
 mkdir -p "$real_template"
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     [[ -z "${strategy:-}" || "$strategy" == \#* ]] && continue
-    if [ "$strategy" = template-owned ]; then
+    if [ "$strategy" = template-owned ] || [ "$strategy" = template-internal ]; then
         mkdir -p "$real_template/$(dirname -- "$path")"
         cp -p "$script_dir/../../$path" "$real_template/$path"
     fi
@@ -261,6 +275,70 @@ fi
 assert_eq 0 "$real_manifest_status" 'real manifest accepts consumer configuration'
 assert_contains 'project-config: .template/project.conf' "$real_manifest_output" \
     'real manifest reports consumer configuration'
+assert_not_contains 'bin/release' "$real_manifest_output" \
+    'real manifest dry-run never mentions internal bin/release'
+assert_not_contains 'VERSION' "$real_manifest_output" \
+    'real manifest dry-run never mentions internal VERSION'
+
+internal_template="$root/internal-template"
+internal_target="$root/internal-target"
+mkdir -p "$internal_template/bin" "$internal_template/.template" "$internal_target/.template"
+cp "$sync_script" "$internal_template/bin/template-sync"
+chmod +x "$internal_template/bin/template-sync"
+printf '1.2.3\n' > "$internal_template/VERSION"
+printf 'template-owned\tshared.txt\ntemplate-internal\tinternal.txt\n' > "$internal_template/template-manifest.tsv"
+printf 'shared content\n' > "$internal_template/shared.txt"
+printf 'internal content\n' > "$internal_template/internal.txt"
+git_init "$internal_template"
+git -C "$internal_template" add .
+git -C "$internal_template" commit -q -m 'internal fixture baseline'
+git_init "$internal_target"
+git -C "$internal_target" commit -q --allow-empty -m 'internal target baseline'
+if internal_output=$("$internal_template/bin/template-sync" --target "$internal_target" 2>&1); then
+    internal_status=0
+else
+    internal_status=$?
+fi
+assert_eq 0 "$internal_status" 'template-internal fixture sync succeeds'
+assert_contains 'template-owned: shared.txt' "$internal_output" \
+    'template-internal fixture copies template-owned file'
+assert_eq 'shared content' "$(<"$internal_target/shared.txt")" \
+    'template-internal fixture copies the owned target file'
+case "$internal_output" in
+    *internal.txt*)
+        printf 'not ok - template-internal file is never copied\n' >&2
+        failures=$((failures + 1))
+        ;;
+    *)
+        printf 'ok - template-internal file is never copied\n'
+        ;;
+esac
+[ ! -e "$internal_target/internal.txt" ] \
+    && printf 'ok - template-internal file is absent from the target\n' \
+    || { printf 'not ok - template-internal file was copied to the target\n' >&2; failures=$((failures + 1)); }
+if internal_dry_output=$("$internal_template/bin/template-sync" --target "$internal_target" --dry-run 2>&1); then
+    internal_dry_status=0
+else
+    internal_dry_status=$?
+fi
+assert_eq 0 "$internal_dry_status" 'template-internal fixture dry-run succeeds'
+assert_not_contains 'internal.txt' "$internal_dry_output" \
+    'template-internal fixture dry-run never mentions the internal file'
+assert_not_contains 'would copy template-owned: internal.txt' "$internal_dry_output" \
+    'template-internal fixture dry-run never plans the internal copy'
+if internal_force_output=$("$internal_template/bin/template-sync" --target "$internal_target" --force 2>&1); then
+    internal_force_status=0
+else
+    internal_force_status=$?
+fi
+assert_eq 0 "$internal_force_status" 'template-internal fixture force sync succeeds'
+assert_not_contains 'template-owned: internal.txt' "$internal_force_output" \
+    'template-internal fixture force sync never reports the internal file'
+assert_not_contains 'internal.txt' "$internal_force_output" \
+    'template-internal fixture force sync never mentions the internal file'
+[ ! -e "$internal_target/internal.txt" ] \
+    && printf 'ok - template-internal file is still absent after force sync\n' \
+    || { printf 'not ok - template-internal file was copied by force sync\n' >&2; failures=$((failures + 1)); }
 
 assert_failure_contains 'inside the template checkout' "$real_template/bin/template-sync" \
     --target "$real_template"

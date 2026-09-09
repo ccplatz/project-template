@@ -188,7 +188,7 @@ while IFS= read -r manifest_line || [ -n "$manifest_line" ]; do
     path=${manifest_line#*$'\t'}
     [[ "$path" != *$'\t'* && -n "$path" ]] || die "Invalid manifest line: $manifest_line"
     case "$strategy" in
-        template-owned|project-config|project-owned) ;;
+        template-owned|template-internal|project-config|project-owned) ;;
         *) die "Unknown manifest strategy: $strategy" ;;
     esac
     [[ "$path" != /* && "$path" != *..* ]] || die "Unsafe manifest path: $path"
@@ -202,14 +202,14 @@ while IFS= read -r manifest_line || [ -n "$manifest_line" ]; do
     manifest_paths+=("$path")
     manifest_strategies+=("$strategy")
 
-    if [ "$strategy" = template-owned ]; then
+    if [ "$strategy" = template-owned ] || [ "$strategy" = template-internal ]; then
         validate_source_path "$path"
         source_path="$script_root/$path"
         [ -f "$source_path" ] && [ ! -L "$source_path" ] || \
             die "Manifest file missing or not a regular file: $path"
         if ! git -C "$script_root" ls-files --error-unmatch -- "$path" >/dev/null 2>&1 \
             || ! git -C "$script_root" cat-file -e "HEAD:$path" 2>/dev/null; then
-            die "Template-owned source file is not versioned in HEAD: $path"
+            die "Template source file is not versioned in HEAD: $path"
         fi
     fi
 

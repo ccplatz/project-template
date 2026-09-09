@@ -5,11 +5,12 @@ synchronizing its shared files into consumer projects.
 
 ## Ownership
 
-Every path in `template-manifest.tsv` has one of three ownership strategies:
+Every path in `template-manifest.tsv` has one of four ownership strategies:
 
 | Strategy | Meaning |
 | --- | --- |
 | `template-owned` | The template is the source of truth. `bin/template-sync` copies updates into consumers and detects local conflicts. |
+| `template-internal` | The template is the source of truth. The file is versioned and release-gated, but never synchronized into consumers. |
 | `project-config` | The file is required by shared tooling but is configured by each consumer. Synchronization reports it and never overwrites it. |
 | `project-owned` | The consumer is the source of truth. Project-specific documentation, configuration, and application code stay in the consumer. |
 
@@ -89,6 +90,9 @@ retry. `--force` is an explicit exception for an intentional overwrite:
 conflicts remain non-overwritable.
 
 ## Template Releases
+
+Template releases apply to the template checkout only. Consumers only receive
+`template-owned` files; `template-internal` files are never synchronized.
 
 A release follows this order:
 
