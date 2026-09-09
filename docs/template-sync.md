@@ -100,7 +100,9 @@ A release follows this order:
 2. Bump `VERSION` to the next semantic version.
 3. Run `bin/template-release-check` and the complete test and static-check commands.
 4. Commit the release and create an annotated tag.
-5. Synchronize consumer projects and review their conflicts.
+5. Publish the GitHub Release (by the user, from the `CHANGELOG.md`
+   section — tags alone do not update the Releases page).
+6. Synchronize consumer projects and review their conflicts.
 
 For example:
 
@@ -118,6 +120,8 @@ git add -A
 git diff --cached --name-status  # Review all intended docs, scripts, tests, and metadata
 git commit -m 'Release template 1.1.0'
 git tag -a v1.1.0 -m 'Template 1.1.0'
+sed -n '/^## \[1\.1\.0\]/,/^## \[/p' CHANGELOG.md | sed '$d' > /tmp/notes-1.1.0.md
+gh release create v1.1.0 --title 'v1.1.0' --notes-file /tmp/notes-1.1.0.md --target main
 ./bin/template-sync --target /path/to/my-project --dry-run
 ./bin/template-sync --target /path/to/my-project
 ```

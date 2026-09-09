@@ -2,6 +2,14 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Document the GitHub Release publishing step (`gh release create` from the
+  `CHANGELOG.md` section) in `AGENTS.md` and `docs/template-sync.md`; tags
+  alone do not update the Releases page.
+
 ## [0.5.0] - 2026-09-09
 
 ### Fixed

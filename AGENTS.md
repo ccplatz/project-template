@@ -119,7 +119,11 @@ are never triggered automatically or silently:
    (`release: bump template to X.Y.Z`), verifies consistency with
    `bin/template-release-check` (rolling back the commit on failure), and then
    creates an annotated tag (`vX.Y.Z`).
-4. **Push (by the user):** `git push --tags`.
+4. **Push (by the user):** `git push` and `git push --tags`.
+5. **Publish the GitHub Release (by the user):** `bin/release` creates
+   only the tag. Publish the release object from the `CHANGELOG.md`
+   section, so the Releases page shows the new version as latest:
+   `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes> --target main`.
 
 Version choice: `patch` for bug fixes, `minor` for new features, `major` for
 breaking changes.
