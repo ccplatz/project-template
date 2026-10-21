@@ -19,6 +19,7 @@ Usage:
   bin/worktree status [<name>]
   bin/worktree status --all
   bin/worktree reset [<name>]
+  bin/worktree test <name> [-- <args>...]
   bin/worktree prune
 
 Commands:
@@ -39,6 +40,9 @@ Commands:
     --all             Show all worktrees and orphaned states
 
   reset [<name>]      Reset the named or active worktree
+
+  test <name>         Run the consumer test hook in the named worktree
+    -- <args>...      Pass the remaining arguments to the consumer
 
   prune               Remove orphaned state files
 
@@ -155,6 +159,14 @@ bootstrap_named() {
     local target
     target=$(resolve_worktree "$name") || return 1
     bootstrap_worktree "$name" "$target"
+}
+
+test_named() {
+    local name=$1
+    local target
+    shift
+    target=$(resolve_worktree "$name") || return 1
+    test_for_worktree "$name" "$target" "$@"
 }
 
 show_status_for_name() {
@@ -291,6 +303,16 @@ case "$command" in
         fi
         target=$(resolve_worktree "$name") || exit 1
         reset_for_worktree "$name" "$target"
+        ;;
+    test)
+        if [ "$#" -eq 1 ]; then
+            test_named "$1"
+        elif [ "$#" -ge 2 ] && [ "$2" = -- ]; then
+            test_named "$1" "${@:3}"
+        else
+            usage >&2
+            exit 1
+        fi
         ;;
     prune)
         if [ "$#" -ne 0 ]; then

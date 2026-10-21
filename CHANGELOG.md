@@ -2,6 +2,29 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Optional `test` hook in the worktree runtime contract.
+  `bin/worktree test <name> [-- <args>...]` dispatches
+  `bin/consumer test <args>...` in the target Worktree with the full
+  `WORKTREE_*` context and propagates the adapter's exit code. Arguments after
+  `--` are passed through verbatim. Unsupported adapters exit `2`.
+
+### Migration
+
+- No action is required for adapters that already exit `2` for unknown hooks.
+  Adapters whose catch-all exits with another code (for example
+  `*) exit 1 ;;`) should either implement `test)` and forward `"${@:2}"` to
+  the project's test runner, or add
+  `test) echo 'test not supported' >&2; exit 2 ;;`.
+- Adapters that reject more than one argument must accept extra arguments for
+  `test`.
+- Adapters that implement `test` must map a test runner exit code of `2` (for
+  example PHPUnit on errors) to another non-zero code, because `2` means
+  "unsupported".
+
 ## [1.0.1] - 2026-10-21
 
 ### Fixed

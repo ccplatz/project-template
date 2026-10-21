@@ -9,8 +9,8 @@ project runtime, and the Adapter never owns worktrees, state, ports, or
 dispatch.
 
 Each Worktree must provide an executable `bin/consumer` at its root. The
-Worktree helper invokes it from the target directory with exactly one
-positional argument, the hook name:
+Worktree helper invokes it from the target directory with the hook name as
+the first positional argument:
 
 ```text
 bin/consumer bootstrap
@@ -18,7 +18,13 @@ bin/consumer start
 bin/consumer stop
 bin/consumer status
 bin/consumer reset
+bin/consumer test [<args>...]
 ```
+
+Every hook except `test` receives exactly one positional argument. `test`
+additionally receives every argument given after `--` on
+`bin/worktree test <name> -- <args>...`, verbatim and in order, so the adapter
+can forward them to the project's test runner.
 
 The Adapter owns all project-specific setup, startup, shutdown, status, and
 reset behavior. The Orchestrator does not inspect the project's runtime,
@@ -34,11 +40,16 @@ framework command directly.
 | `stop`      | yes      | Stop the project's runtime cleanly              |
 | `status`    | optional | Report runtime status for `bin/worktree status`  |
 | `reset`     | optional | Reset the project to a clean, runnable state    |
+| `test`      | optional | Run the project's tests in the target           |
 
 The adapter exits `0` on success. Required hooks must exit non-zero on any
 failure. An optional hook that is not supported must exit with status `2` and
-print an explanation; the CLI preserves that result. For `reset`, the CLI
-additionally prints a pointer to this contract when the hook returns `2`.
+print an explanation; the CLI preserves that result. For `reset` and `test`,
+the CLI additionally prints a pointer to this contract when the hook returns
+`2`. `test` propagates every other exit code of the adapter unchanged and
+requires initialized Worktree state, like `stop`. Because `2` means
+"unsupported", a `test` adapter whose runner can itself exit `2` (for example
+PHPUnit on errors) must map that result to another non-zero code.
 Other optional hooks, such as `status`, pass their own explanation through
 because the CLI appends their output verbatim. Any other non-zero exit from an
 optional hook is treated as a failure. A missing adapter makes the Orchestrator

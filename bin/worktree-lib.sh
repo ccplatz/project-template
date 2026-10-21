@@ -425,6 +425,7 @@ run_consumer_hook() {
     local profile_name
     local profile_base
     local -a adapter_environment=(env -i)
+    shift 3
 
     load_worktree_state "$name" || return 1
     if [ ! -x "$consumer" ]; then
@@ -457,7 +458,7 @@ run_consumer_hook() {
     done < <(worktree_profile_entries)
     (
         cd "$path" || exit 1
-        "${adapter_environment[@]}" ./bin/consumer "$hook"
+        "${adapter_environment[@]}" ./bin/consumer "$hook" "$@"
     )
 }
 
@@ -500,6 +501,27 @@ reset_for_worktree() {
     fi
     if [ "$status" -eq 2 ]; then
         printf 'Reset is not supported by Worktree %s; see docs/runtime-hooks.md\n' "$name" >&2
+    fi
+    return "$status"
+}
+
+test_for_worktree() {
+    local name=$1
+    local path=$2
+    local status
+    shift 2
+
+    if [ ! -f "$(worktree_state_path "$name")" ]; then
+        die "Worktree state is not initialized for $name; run bin/worktree bootstrap first"
+        return 1
+    fi
+    if run_consumer_hook "$name" "$path" test "$@"; then
+        return 0
+    else
+        status=$?
+    fi
+    if [ "$status" -eq 2 ]; then
+        printf 'Test is not supported by Worktree %s; see docs/runtime-hooks.md\n' "$name" >&2
     fi
     return "$status"
 }

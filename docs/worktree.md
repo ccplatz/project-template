@@ -15,6 +15,7 @@ the executable `bin/consumer` adapter in each Worktree.
 ./bin/worktree status [<name>]
 ./bin/worktree status --all
 ./bin/worktree reset [<name>]
+./bin/worktree test <name> [-- <args>...]
 ./bin/worktree prune
 ```
 
@@ -25,10 +26,11 @@ stopping any other Worktree.
 
 ## Consumer Hooks
 
-`bootstrap`, `start`, `stop`, `status`, and `reset` dispatch to the target's
-`bin/consumer` executable. The adapter receives one positional argument, the
-hook name, and receives the generic `WORKTREE_*` context through its
-environment. See [runtime-hooks.md](runtime-hooks.md) for the hook contract.
+`bootstrap`, `start`, `stop`, `status`, `reset`, and `test` dispatch to the
+target's `bin/consumer` executable. The adapter receives the hook name as its
+first positional argument; `test` also receives the arguments given after
+`--`. The generic `WORKTREE_*` context arrives through its environment. See
+[runtime-hooks.md](runtime-hooks.md) for the hook contract.
 
 An explicit `bootstrap` does not change `.worktree-active`. `create` updates the
 active pointer only after the target has bootstrapped successfully. A failed

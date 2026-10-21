@@ -19,7 +19,7 @@ cat > "$repo/bin/consumer" <<'CONSUMER_EOF'
 set -euo pipefail
 
 hook=${1:-}
-if [ "$#" -ne 1 ]; then
+if [ "$hook" != test ] && [ "$#" -ne 1 ]; then
     printf 'BAD_ARG_COUNT=%s\n' "$#" >> "$WORKTREE_ROOT/consumer.log"
     exit 97
 fi
@@ -80,6 +80,9 @@ fi
 
 {
     printf 'HOOK=%s\n' "$hook"
+    for hook_argument in "${@:2}"; do
+        printf 'ARG=%s\n' "$hook_argument"
+    done
     printf 'PWD=%s\n' "$PWD"
     env | LC_ALL=C sort | LC_ALL=C grep '^WORKTREE_'
     printf 'SAIL_SET=%s COMPOSE_SET=%s APP_SET=%s VITE_SET=%s DB_SET=%s REDIS_SET=%s\n' \
@@ -109,6 +112,15 @@ case "$hook" in
             printf 'reset not supported\n' >&2
             printf 'reset not supported\n' >> "$log"
             exit 2
+        fi
+        ;;
+    test)
+        if [ -f "$WORKTREE_ROOT/.consumer-no-test" ]; then
+            printf 'test not supported\n' >&2
+            exit 2
+        fi
+        if [ -f "$WORKTREE_ROOT/.consumer-test-exit" ]; then
+            exit "$(<"$WORKTREE_ROOT/.consumer-test-exit")"
         fi
         ;;
     *)
@@ -937,6 +949,53 @@ case "$output" in
         failures=$((failures + 1))
         ;;
 esac
+
+rm -f "$consumer_log"
+assert_status 0 run_command test feature-y
+assert_contains "$consumer_log" 'HOOK=test'
+assert_eq 0 "$(grep -c '^ARG=' "$consumer_log" || true)" \
+    'test without -- passes no arguments'
+
+rm -f "$consumer_log"
+assert_status 0 run_command test feature-y -- --filter 'a b' '' -- x
+assert_eq $'ARG=--filter\nARG=a b\nARG=\nARG=--\nARG=x' \
+    "$(grep '^ARG=' "$consumer_log" || true)" \
+    'test passes arguments after -- verbatim'
+
+rm -f "$consumer_log"
+assert_status 0 run_command test feature-y --
+assert_contains "$consumer_log" 'HOOK=test'
+
+printf '3\n' > "$repo/.consumer-test-exit"
+assert_status 3 run_command test feature-y
+rm -f "$repo/.consumer-test-exit"
+
+touch "$repo/.consumer-no-test"
+if output=$(run_command test feature-y 2>&1); then
+    test_exit=0
+else
+    test_exit=$?
+fi
+rm -f "$repo/.consumer-no-test"
+assert_eq 2 "$test_exit" 'unsupported test hook exits 2'
+case "$output" in
+    *'docs/runtime-hooks.md'*)
+        printf 'ok - unsupported test diagnostic points to the hook contract\n' ;;
+    *)
+        printf 'not ok - unsupported test diagnostic missing contract\n'
+        failures=$((failures + 1))
+        ;;
+esac
+
+assert_failure_contains 'Usage:' run_command test
+assert_failure_contains 'Usage:' run_command test feature-y extra
+assert_failure_contains 'worktree not found' run_command test missing-tree
+
+git -C "$repo" worktree add -q -b test-unstarted "$repo/.worktrees/test-unstarted"
+rm -f "$consumer_log"
+assert_failure_contains 'not initialized' run_command test test-unstarted
+assert_not_contains "$consumer_log" 'HOOK=test'
+git -C "$repo" worktree remove -f "$repo/.worktrees/test-unstarted"
 
 rm -rf "$repo/.worktree-active" "$consumer_state"
 mkdir -p "$consumer_state"

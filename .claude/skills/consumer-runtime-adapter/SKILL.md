@@ -21,7 +21,9 @@ The Orchestrator invokes `bin/consumer <hook>` in the target Worktree with a
 controlled environment:
 
 - Required hooks: `bootstrap`, `start`, `stop`.
-- Optional hooks: `status`, `reset`. Unsupported optional hooks exit `2`.
+- Optional hooks: `status`, `reset`, `test`. Unsupported optional hooks exit
+  `2`. `test` receives the arguments given after `--` on
+  `bin/worktree test <name> -- <args>...` and forwards them to the test runner.
 - The adapter receives `WORKTREE_NAME`, `WORKTREE_INSTANCE_NAME`,
   `WORKTREE_PATH`, `WORKTREE_ROOT`, `WORKTREE_STATE_FILE`, `WORKTREE_ENV_FILE`,
   and one `WORKTREE_PORT_<PROFILE>` variable per configured port profile entry.
@@ -74,7 +76,7 @@ controlled environment:
 ## Acceptance Criteria
 
 - `bin/consumer` is executable and handles `bootstrap`, `start`, and `stop`;
-  `status` and `reset` are implemented or exit `2`.
+  `status`, `reset`, and `test` are implemented or exit `2`.
 - Every framework command (Composer, Artisan, Sail, Compose, npm, Vite,
   Livewire, workers) runs only through the adapter.
 - The adapter reads only the documented `WORKTREE_*` context and never assumes
