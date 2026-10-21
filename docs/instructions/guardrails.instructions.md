@@ -40,7 +40,7 @@ The following is **never** allowed — no exceptions:
 
 ### Documentation
 
-- All documentation files (AGENTS.md, instructions) are written in **English**
+- All documentation files (CLAUDE.md, instructions) are written in **English**
 - Code comments are written in **English**
 - <!-- TODO: Do you use a different UI language? Document it here -->
 

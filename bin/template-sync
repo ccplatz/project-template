@@ -6,7 +6,8 @@ usage() {
     cat <<'EOF'
 Usage: template-sync --target <path> [--dry-run] [--force]
 
-Synchronizes template-owned files from the current template checkout.
+Synchronizes template-owned files from the current template checkout and
+removes template-retired files that still match their last template version.
 EOF
 }
 
@@ -188,7 +189,7 @@ while IFS= read -r manifest_line || [ -n "$manifest_line" ]; do
     path=${manifest_line#*$'\t'}
     [[ "$path" != *$'\t'* && -n "$path" ]] || die "Invalid manifest line: $manifest_line"
     case "$strategy" in
-        template-owned|template-internal|project-config|project-owned) ;;
+        template-owned|template-internal|template-retired|project-config|project-owned) ;;
         *) die "Unknown manifest strategy: $strategy" ;;
     esac
     [[ "$path" != /* && "$path" != *..* ]] || die "Unsafe manifest path: $path"
@@ -211,6 +212,12 @@ while IFS= read -r manifest_line || [ -n "$manifest_line" ]; do
             || ! git -C "$script_root" cat-file -e "HEAD:$path" 2>/dev/null; then
             die "Template source file is not versioned in HEAD: $path"
         fi
+    fi
+
+    if [ "$strategy" = template-retired ]; then
+        validate_source_path "$path"
+        [ ! -e "$script_root/$path" ] && [ ! -L "$script_root/$path" ] || \
+            die "Template-retired path still exists in the template checkout: $path"
     fi
 
     case "$strategy" in
@@ -257,6 +264,32 @@ for index in "${!manifest_paths[@]}"; do
     fi
 done
 
+for index in "${!manifest_paths[@]}"; do
+    strategy=${manifest_strategies[$index]}
+    [ "$strategy" = template-retired ] || continue
+    path=${manifest_paths[$index]}
+    target_path="$target_root/$path"
+    validate_target_path "$path"
+    if [ -L "$target_path" ] || [ -e "$target_path" ] && [ ! -f "$target_path" ]; then
+        action_kinds+=(unforceable-conflict)
+        action_paths+=("$path")
+        conflict_count=$((conflict_count + 1))
+        unforceable_count=$((unforceable_count + 1))
+    elif [ ! -e "$target_path" ]; then
+        action_kinds+=(unchanged)
+        action_paths+=("$path")
+    elif [ -n "$locked_commit" ] \
+         && git -C "$script_root" show "$locked_commit:$path" >"$previous_file" 2>/dev/null \
+         && cmp -s "$previous_file" "$target_path"; then
+        action_kinds+=(remove)
+        action_paths+=("$path")
+    else
+        action_kinds+=(remove-conflict)
+        action_paths+=("$path")
+        conflict_count=$((conflict_count + 1))
+    fi
+done
+
 lock_needs_update=0
 if [ ! -f "$lock_file" ] || [ "$locked_source" != "$source_name" ] \
     || [ "$locked_version" != "$version" ] || [ "$locked_commit" != "$source_commit" ]; then
@@ -265,7 +298,10 @@ fi
 
 if [ "$force" -eq 1 ]; then
     for index in "${!action_kinds[@]}"; do
-        [ "${action_kinds[$index]}" = conflict ] && action_kinds[$index]=copy
+        case "${action_kinds[$index]}" in
+            conflict) action_kinds[$index]=copy ;;
+            remove-conflict) action_kinds[$index]=remove ;;
+        esac
     done
 fi
 
@@ -277,8 +313,16 @@ if [ "$dry_run" -eq 1 ]; then
                 printf 'would copy template-owned: %s\n' "${action_paths[$index]}"
                 changes=1
                 ;;
+            remove)
+                printf 'would remove template-retired: %s\n' "${action_paths[$index]}"
+                changes=1
+                ;;
             conflict)
                 printf 'conflict: %s\n' "${action_paths[$index]}" >&2
+                ;;
+            remove-conflict)
+                printf 'conflict (retired file changed locally): %s\n' \
+                    "${action_paths[$index]}" >&2
                 ;;
             unforceable-conflict)
                 printf 'conflict (unforceable conflict): %s\n' \
@@ -310,6 +354,10 @@ if [ "$conflict_count" -gt 0 ]; then
             conflict)
                 printf 'conflict: %s\n' "${action_paths[$index]}" >&2
                 ;;
+            remove-conflict)
+                printf 'conflict (retired file changed locally): %s\n' \
+                    "${action_paths[$index]}" >&2
+                ;;
             unforceable-conflict)
                 printf 'conflict (unforceable conflict): %s\n' \
                     "${action_paths[$index]}" >&2
@@ -335,6 +383,16 @@ for index in "${!action_paths[@]}"; do
         mkdir -p -- "$(dirname -- "$target_path")"
         cp --remove-destination -p -- "$script_root/$path" "$target_path"
         printf 'template-owned: %s\n' "$path"
+    elif [ "${action_kinds[$index]}" = remove ]; then
+        target_path="$target_root/$path"
+        rm -f -- "$target_path"
+        # Prune directories left empty by the removal, never the target root.
+        parent_path=$(dirname -- "$target_path")
+        while [ "$parent_path" != "$target_root" ] \
+            && rmdir -- "$parent_path" 2>/dev/null; do
+            parent_path=$(dirname -- "$parent_path")
+        done
+        printf 'template-retired: removed %s\n' "$path"
     fi
 done
 

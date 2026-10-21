@@ -29,4 +29,5 @@ docs/superpowers
 .worktrees-share
 /.worktree-active
 tests/e2e/.auth
+.claude/settings.local.json
 test-results/

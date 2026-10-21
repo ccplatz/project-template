@@ -104,6 +104,11 @@ real_manifest_runtime_hooks=0
 real_manifest_consumer_skill=0
 real_manifest_container=0
 real_manifest_container_lib=0
+real_manifest_claude_settings=0
+real_manifest_claude_hook=0
+real_manifest_claude_guide=0
+real_manifest_opencode_owned=0
+real_manifest_opencode_retired=0
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     [[ -z "${strategy:-}" || "$strategy" == \#* ]] && continue
     if [ "$path" = VERSION ]; then
@@ -127,9 +132,27 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     if [ "$path" = docs/runtime-hooks.md ]; then
         [ "$strategy" = template-owned ] && real_manifest_runtime_hooks=1
     fi
-    if [ "$path" = .opencode/skills/consumer-runtime-adapter/SKILL.md ]; then
+    if [ "$path" = .claude/skills/consumer-runtime-adapter/SKILL.md ]; then
         [ "$strategy" = template-owned ] && real_manifest_consumer_skill=1
     fi
+    if [ "$path" = .claude/settings.json ] && [ "$strategy" = template-owned ]; then
+        real_manifest_claude_settings=1
+    fi
+    if [ "$path" = bin/claude-hook ] && [ "$strategy" = template-owned ]; then
+        real_manifest_claude_hook=1
+    fi
+    if [ "$path" = CLAUDE.md ] && [ "$strategy" = project-owned ]; then
+        real_manifest_claude_guide=1
+    fi
+    case "$path" in
+        .opencode/*|opencode.json|AGENTS.md)
+            if [ "$strategy" = template-retired ]; then
+                real_manifest_opencode_retired=$((real_manifest_opencode_retired + 1))
+            else
+                real_manifest_opencode_owned=1
+            fi
+            ;;
+    esac
     if [ "$path" = bin/container ] && [ "$strategy" = template-owned ]; then
         real_manifest_container=1
     fi
@@ -160,6 +183,19 @@ assert_eq 0 "$real_manifest_container" \
     'real manifest removes bin/container'
 assert_eq 0 "$real_manifest_container_lib" \
     'real manifest removes bin/container-lib.sh'
+assert_eq 1 "$real_manifest_claude_settings" \
+    'real manifest includes template-owned .claude/settings.json'
+assert_eq 1 "$real_manifest_claude_hook" \
+    'real manifest includes template-owned bin/claude-hook'
+assert_eq 1 "$real_manifest_claude_guide" \
+    'real manifest keeps CLAUDE.md project-owned'
+assert_eq 0 "$real_manifest_opencode_owned" \
+    'real manifest no longer owns any OpenCode path'
+assert_eq 2 "$real_manifest_opencode_retired" \
+    'real manifest retires both former OpenCode template files'
+[ -z "$(git -C "$script_dir/../.." ls-files -- .opencode opencode.json AGENTS.md)" ] \
+    && printf 'ok - template checkout contains no OpenCode files\n' \
+    || { printf 'not ok - template checkout still contains OpenCode files\n' >&2; failures=$((failures + 1)); }
 assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.1.1]' \
     'changelog records the initial release'
 assert_file_contains "$script_dir/../../docs/template-sync.md" 'template-owned' \
@@ -179,7 +215,7 @@ assert_file_contains "$script_dir/../../docs/runtime-hooks.md" 'container_name' 
     'runtime hook documentation requires fixed container names'
 assert_file_contains "$script_dir/../../docs/runtime-hooks.md" 'docker volume' \
     'runtime hook documentation requires the volume existence guard'
-assert_file_contains "$script_dir/../../.opencode/skills/consumer-runtime-adapter/SKILL.md" \
+assert_file_contains "$script_dir/../../.claude/skills/consumer-runtime-adapter/SKILL.md" \
     'container_name' \
     'consumer adapter skill documents the Compose identity guard'
 for contract_file in README.md docs/runtime-hooks.md; do
@@ -194,10 +230,10 @@ for contract_file in README.md docs/runtime-hooks.md; do
     assert_file_contains "$script_dir/../../$contract_file" 'Orchestrator/Adapter boundary' \
         "$contract_file documents the Orchestrator/Adapter boundary"
 done
-assert_file_contains "$script_dir/../../AGENTS.md" \
+assert_file_contains "$script_dir/../../CLAUDE.md" \
     'Multiple worktree stacks can run at the same time' \
     'agent guide documents parallel worktree stacks'
-assert_file_contains "$script_dir/../../AGENTS.md" \
+assert_file_contains "$script_dir/../../CLAUDE.md" \
     'switch' 'agent guide documents non-destructive switching'
 assert_file_contains "$script_dir/../../CHANGELOG.md" '[0.3.0]' \
     'changelog records the parallel stack release'
@@ -339,6 +375,101 @@ assert_not_contains 'internal.txt' "$internal_force_output" \
 [ ! -e "$internal_target/internal.txt" ] \
     && printf 'ok - template-internal file is still absent after force sync\n' \
     || { printf 'not ok - template-internal file was copied by force sync\n' >&2; failures=$((failures + 1)); }
+
+retired_template="$root/retired-template"
+retired_target="$root/retired-target"
+mkdir -p "$retired_template/bin" "$retired_template/old" "$retired_target"
+cp "$sync_script" "$retired_template/bin/template-sync"
+chmod +x "$retired_template/bin/template-sync"
+printf '1.2.3\n' > "$retired_template/VERSION"
+printf 'template-owned\told/kept.txt\ntemplate-owned\told/dir/gone.txt\ntemplate-owned\told/edited.txt\ntemplate-owned\told/deep/only.txt\n' \
+    > "$retired_template/template-manifest.tsv"
+mkdir -p "$retired_template/old/dir" "$retired_template/old/deep"
+printf 'only\n' > "$retired_template/old/deep/only.txt"
+printf 'kept\n' > "$retired_template/old/kept.txt"
+printf 'gone\n' > "$retired_template/old/dir/gone.txt"
+printf 'edited\n' > "$retired_template/old/edited.txt"
+git_init "$retired_template"
+git -C "$retired_template" add .
+git -C "$retired_template" commit -q -m 'retired fixture baseline'
+git_init "$retired_target"
+git -C "$retired_target" commit -q --allow-empty -m 'retired target baseline'
+"$retired_template/bin/template-sync" --target "$retired_target" >/dev/null
+printf 'local change\n' > "$retired_target/old/edited.txt"
+printf 'consumer file\n' > "$retired_target/old/dir/consumer.txt"
+retired_lock=$(<"$retired_target/.template/template.lock")
+
+git -C "$retired_template" rm -q old/dir/gone.txt old/edited.txt old/deep/only.txt
+printf 'template-owned\told/kept.txt\ntemplate-retired\told/dir/gone.txt\ntemplate-retired\told/edited.txt\ntemplate-retired\told/deep/only.txt\ntemplate-retired\tnever-synced.txt\n' \
+    > "$retired_template/template-manifest.tsv"
+git -C "$retired_template" add template-manifest.tsv
+git -C "$retired_template" commit -q -m 'retire files'
+
+if retired_dry_output=$("$retired_template/bin/template-sync" --target "$retired_target" --dry-run 2>&1); then
+    retired_dry_status=0
+else
+    retired_dry_status=$?
+fi
+assert_eq 1 "$retired_dry_status" 'retired dry-run fails on a locally changed retired file'
+assert_contains 'would remove template-retired: old/dir/gone.txt' "$retired_dry_output" \
+    'retired dry-run plans the removal of an unchanged retired file'
+assert_contains 'conflict (retired file changed locally): old/edited.txt' "$retired_dry_output" \
+    'retired dry-run reports a locally changed retired file'
+assert_not_contains 'never-synced.txt' "$retired_dry_output" \
+    'retired dry-run ignores a retired file absent from the target'
+[ -f "$retired_target/old/dir/gone.txt" ] \
+    && printf 'ok - retired dry-run keeps the target file\n' \
+    || { printf 'not ok - retired dry-run removed the target file\n' >&2; failures=$((failures + 1)); }
+
+if retired_conflict_output=$("$retired_template/bin/template-sync" --target "$retired_target" 2>&1); then
+    retired_conflict_status=0
+else
+    retired_conflict_status=$?
+fi
+assert_eq 1 "$retired_conflict_status" 'retired sync fails on a locally changed retired file'
+assert_contains 'conflict (retired file changed locally): old/edited.txt' "$retired_conflict_output" \
+    'retired sync reports the conflict'
+[ -f "$retired_target/old/dir/gone.txt" ] && [ -f "$retired_target/old/edited.txt" ] \
+    && printf 'ok - retired conflict leaves all target files in place\n' \
+    || { printf 'not ok - retired conflict removed a target file\n' >&2; failures=$((failures + 1)); }
+assert_eq "$retired_lock" "$(<"$retired_target/.template/template.lock")" \
+    'retired conflict leaves the lock unchanged'
+
+git -C "$retired_target" checkout -q -- old/edited.txt 2>/dev/null \
+    || printf 'edited\n' > "$retired_target/old/edited.txt"
+retired_output=$("$retired_template/bin/template-sync" --target "$retired_target")
+assert_contains 'template-retired: removed old/dir/gone.txt' "$retired_output" \
+    'retired sync reports the removed file'
+assert_contains 'template-retired: removed old/edited.txt' "$retired_output" \
+    'retired sync removes a restored retired file'
+[ ! -e "$retired_target/old/dir/gone.txt" ] && [ ! -e "$retired_target/old/edited.txt" ] \
+    && printf 'ok - retired sync removes unchanged retired files\n' \
+    || { printf 'not ok - retired sync kept a retired file\n' >&2; failures=$((failures + 1)); }
+[ -f "$retired_target/old/dir/consumer.txt" ] && [ -f "$retired_target/old/kept.txt" ] \
+    && printf 'ok - retired sync keeps unrelated files and non-empty directories\n' \
+    || { printf 'not ok - retired sync removed an unrelated file\n' >&2; failures=$((failures + 1)); }
+
+[ ! -e "$retired_target/old/deep" ] && [ -d "$retired_target/old" ] \
+    && printf 'ok - retired sync prunes directories left empty\n' \
+    || { printf 'not ok - retired sync did not prune the empty directory\n' >&2; failures=$((failures + 1)); }
+
+printf 're-added after retirement\n' > "$retired_target/old/edited.txt"
+assert_failure_contains 'retired file changed locally' \
+    "$retired_template/bin/template-sync" --target "$retired_target"
+retired_force_output=$("$retired_template/bin/template-sync" --target "$retired_target" --force)
+assert_contains 'template-retired: removed old/edited.txt' "$retired_force_output" \
+    'force removes a locally changed retired file'
+
+mkdir -p "$retired_target/old/edited.txt"
+assert_failure_contains 'unforceable conflict' "$retired_template/bin/template-sync" \
+    --target "$retired_target" --force
+rmdir "$retired_target/old/edited.txt"
+
+printf 'reintroduced\n' > "$retired_template/never-synced.txt"
+git -C "$retired_template" add never-synced.txt
+git -C "$retired_template" commit -q -m 'reintroduce retired path'
+assert_failure_contains 'still exists in the template checkout' \
+    "$retired_template/bin/template-sync" --target "$retired_target" --dry-run
 
 assert_failure_contains 'inside the template checkout' "$real_template/bin/template-sync" \
     --target "$real_template"

@@ -1,0 +1,111 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# =============================================================================
+# claude-hook — Claude Code hook adapter for bin/guardrails-check
+#
+# Usage (configured in .claude/settings.json, reads the hook JSON from stdin):
+#   bin/claude-hook pre-bash     # PreToolUse(Bash): block dangerous commands
+#   bin/claude-hook post-edit    # PostToolUse(Edit|Write): report violations
+#   bin/claude-hook stop         # Stop: summarize violations at session end
+#
+# Exit status 2 sends stderr back to Claude (pre-bash blocks the command,
+# post-edit reports the violation). Requires jq.
+# =============================================================================
+
+usage() {
+    printf 'Usage: claude-hook <pre-bash|post-edit|stop>\n' >&2
+}
+
+[ "$#" -eq 1 ] || {
+    usage
+    exit 1
+}
+
+command -v jq >/dev/null 2>&1 || {
+    printf 'claude-hook: jq is required for the guardrails hooks.\n' >&2
+    exit 1
+}
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+project_dir=$(cd "$script_dir/.." && pwd)
+check_script="$script_dir/guardrails-check"
+
+# Each pattern is an ERE paired with the reason shown when it blocks a command.
+dangerous_patterns=(
+    '(^|[^[:alnum:]_])rm[[:space:]]+-rf[[:space:]]+/'
+    '(^|[^[:alnum:]_])chmod[[:space:]]+777[[:space:]]+/'
+    '>[[:space:]]*/dev/sda'
+    '(^|[^[:alnum:]_])curl([[:space:]].*)?\|[[:space:]]*(ba)?sh'
+    '(^|[^[:alnum:]_])wget([[:space:]].*)?\|[[:space:]]*(ba)?sh'
+)
+dangerous_reasons=(
+    'rm -rf / would wipe the entire filesystem'
+    'chmod 777 / makes the entire filesystem world-writable'
+    'Writing directly to /dev/sda can corrupt the disk'
+    'Piping curl to shell is a security risk — verify the source first'
+    'Piping wget to shell is a security risk — verify the source first'
+)
+
+input=$(cat)
+
+pre_bash() {
+    local command index
+    command=$(jq -r '.tool_input.command // empty' <<< "$input")
+    [ -n "$command" ] || return 0
+
+    for index in "${!dangerous_patterns[@]}"; do
+        if [[ "$command" =~ ${dangerous_patterns[$index]} ]]; then
+            printf 'Blocked dangerous command: "%s" — %s. ' \
+                "$command" "${dangerous_reasons[$index]}" >&2
+            printf 'If you need to run this command, ask the user to run it.\n' >&2
+            exit 2
+        fi
+    done
+}
+
+post_edit() {
+    local file_path relative_path violations
+    file_path=$(jq -r '.tool_input.file_path // empty' <<< "$input")
+    [ -n "$file_path" ] || return 0
+    relative_path=${file_path#"$project_dir"/}
+
+    case "$relative_path" in
+        vendor/*|node_modules/*|storage/*|.git/*|*/vendor/*|*/node_modules/*) return 0 ;;
+    esac
+    case "$relative_path" in
+        *.php|*.ts|*.tsx) ;;
+        *) return 0 ;;
+    esac
+
+    violations=$("$check_script" --warn --ci 2>/dev/null \
+        | awk -v prefix="$relative_path:" 'index($0, prefix) == 1' || true)
+    [ -n "$violations" ] || return 0
+
+    printf 'Guardrails violations after editing %s:\n%s\n' "$relative_path" "$violations" >&2
+    exit 2
+}
+
+stop() {
+    local violations count
+    # Never re-trigger while Claude is already continuing from a Stop hook.
+    [ "$(jq -r '.stop_hook_active // false' <<< "$input")" != true ] || return 0
+
+    violations=$("$check_script" --warn --ci 2>/dev/null || true)
+    [ -n "$violations" ] || return 0
+
+    count=$(printf '%s\n' "$violations" | wc -l | tr -d ' ')
+    jq -n --arg message "Guardrails: $count violation(s) detected. Run ./bin/guardrails-check for details." \
+        '{systemMessage: $message}'
+}
+
+case "$1" in
+    pre-bash) pre_bash ;;
+    post-edit) post_edit ;;
+    stop) stop ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

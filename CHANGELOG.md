@@ -2,6 +2,48 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** Replace OpenCode with Claude Code. The guardrails plugin
+  `.opencode/plugins/guardrails.ts` becomes Claude Code hooks in
+  `.claude/settings.json` that call the new `bin/claude-hook` (requires `jq`):
+  `PreToolUse` blocks dangerous shell commands, `PostToolUse` reports
+  guardrails violations in an edited file back to Claude, and `Stop`
+  summarizes a full scan. The Superpowers plugin is enabled through the
+  `superpowers-marketplace` Claude Code marketplace.
+- Move the consumer adapter skill to
+  `.claude/skills/consumer-runtime-adapter/SKILL.md`.
+- Rename the project-owned agent guide `AGENTS.md` to `CLAUDE.md`.
+
+### Added
+
+- `template-retired` manifest strategy: `bin/template-sync` removes a former
+  template-owned file from consumers when it still matches the locked template
+  version and reports a conflict otherwise.
+- `tests/bin/claude_hook_test.sh` for the Claude Code hook adapter.
+
+### Removed
+
+- `opencode.json` and `.opencode/` (both former template-owned files are now
+  `template-retired`).
+
+### Migration
+
+1. Run `bin/template-sync --target <consumer> --dry-run` and review the
+   planned removals of `.opencode/plugins/guardrails.ts` and
+   `.opencode/skills/consumer-runtime-adapter/SKILL.md`.
+2. Remove the project-owned OpenCode files the sync does not touch:
+   `opencode.json`, `.opencode/package.json`, `.opencode/package-lock.json`,
+   `.opencode/.gitignore`, and any local `.opencode/node_modules`.
+3. Move MCP servers from `opencode.json` (`mcp`) into a project-owned
+   `.mcp.json` (`mcpServers`, with `command` and `args`).
+4. Move consumer skills (for example `.agents/skills/*`) to `.claude/skills/`.
+5. Rename `AGENTS.md` to `CLAUDE.md`, update references to it, and add
+   `.claude/settings.local.json` to `.gitignore`.
+6. Install `jq` on every development host.
+
 ## [0.5.1] - 2026-09-09
 
 ### Fixed

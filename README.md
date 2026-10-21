@@ -1,14 +1,18 @@
 # project-template
 
 Bootstrap repository for new projects. Contains reusable infrastructure scripts,
-configuration files, and OpenCode setup.
+configuration files, and Claude Code setup.
 
 ## What's included
 
-### OpenCode setup
-- `opencode.json` — OpenCode configuration with Superpowers plugin
-- `AGENTS.md` — Agent Guide (to be filled in per project)
-- `.opencode/plugins/guardrails.ts` — Automated guardrails plugin (file-edited, tool-execute-before, session-idle hooks)
+### Claude Code setup
+- `CLAUDE.md` — Agent Guide (to be filled in per project)
+- `.claude/settings.json` — shared Claude Code settings: Superpowers plugin and guardrails hooks
+- `bin/claude-hook` — hook adapter for `bin/guardrails-check` (pre-bash, post-edit, stop); requires `jq`
+- `.claude/skills/consumer-runtime-adapter/SKILL.md` — skill for building the consumer adapter
+
+Personal overrides belong in `.claude/settings.local.json` (Git-ignored).
+Project-specific MCP servers belong in a project-owned `.mcp.json`.
 
 ### Worktree management (`bin/worktree`)
 
@@ -49,7 +53,7 @@ and dispatch; the consumer owns the runtime. See `docs/runtime-hooks.md` for
 the full hook contract, environment preparation (`.env.example` /
 `.env.template`), and Laravel/Sail and Laravel/Compose examples. Agent guidance
 for building a consumer adapter lives in
-`.opencode/skills/consumer-runtime-adapter/SKILL.md`.
+`.claude/skills/consumer-runtime-adapter/SKILL.md`.
 
 ### Configuration files
 - `.editorconfig` — consistent editor settings (UTF-8, LF, 4-space indent)
@@ -75,7 +79,7 @@ agent context about your project:
 - `design-system.instructions.md` — design tokens and system
 - `environments.instructions.md` — dev, staging, and production setup
 
-Delete any that don't apply to your project and update `AGENTS.md` accordingly.
+Delete any that don't apply to your project and update `CLAUDE.md` accordingly.
 
 ### Tests
 - `tests/bin/worktree_test.sh` — unit tests for the worktree orchestration script
@@ -103,8 +107,9 @@ Runs 6 checks on every validation:
 ```
 
 Each check can be toggled on/off in the CONFIG block at the top of the script.
-Works with an OpenCode plugin (`.opencode/plugins/guardrails.ts`) that runs checks
-on file edits, blocks dangerous shell commands, and runs a full scan at session end.
+The Claude Code hooks in `.claude/settings.json` call `bin/claude-hook`, which
+reports violations in an edited file back to Claude, blocks dangerous shell
+commands, and summarizes a full scan at session end.
 
 ## Usage
 
@@ -127,13 +132,13 @@ sed -i 's/^PROJECT_NAME=.*/PROJECT_NAME=my-project/' .template/project.conf
 
 Read `docs/template-sync.md` before making future template updates.
 
-### 3. Fill in AGENTS.md
+### 3. Fill in CLAUDE.md
 
 Replace all `<!-- TODO -->` comments and `<PROJECT_DISPLAY_NAME>` placeholders
 with project-specific content. Fill in the architecture, frontend conventions,
 and references sections. Remove any `docs/instructions/*` entries that don't apply.
 
-`AGENTS.md` and `docs/instructions/*` are project-owned documentation. Their
+`CLAUDE.md` and `docs/instructions/*` are project-owned documentation. Their
 placeholders are intentionally project-specific and must be filled in by the
 new project; `bin/template-sync` does not rewrite them.
 
@@ -163,7 +168,7 @@ instructions automatically. Copy the files to your project, then use a prompt li
 
 Every worktree must provide an executable `bin/consumer` adapter that owns the
 project runtime (bootstrap, start, stop). Use the `consumer-runtime-adapter`
-skill (`.opencode/skills/consumer-runtime-adapter/SKILL.md`) and
+skill (`.claude/skills/consumer-runtime-adapter/SKILL.md`) and
 `docs/runtime-hooks.md` to build it; see the Consumer adapter section above.
 
 ### 6. Initialize the repository

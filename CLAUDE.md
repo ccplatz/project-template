@@ -67,7 +67,7 @@ All framework commands below are examples for a Laravel/Sail consumer and run
 through the consumer-owned `bin/consumer` adapter; the template never invokes
 them directly. Adjust them to your consumer's runtime.
 
-0. `./bin/guardrails-check` — automated code quality & security guardrails (see `.opencode/plugins/guardrails.ts`)
+0. `./bin/guardrails-check` — automated code quality & security guardrails (also run by the Claude Code hooks in `.claude/settings.json` via `bin/claude-hook`)
 1. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail artisan test` — PHPUnit (feature + unit)
 2. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail composer check` — PHPStan + Pint (format)
 3. `COMPOSE_PROJECT_NAME=<PROJECT_NAME> ./vendor/bin/sail npm run test` — <!-- TODO: Frontend tests (Vitest or similar) -->

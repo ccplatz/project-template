@@ -18,8 +18,8 @@ pint.json
 vitest.config.ts
 eslint.config.js
 tsconfig.json
-AGENTS.md
 CLAUDE.md
+.claude
 *.md
 compose.yaml
 docker-compose.staging.yml

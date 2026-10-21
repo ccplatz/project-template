@@ -5,12 +5,13 @@ synchronizing its shared files into consumer projects.
 
 ## Ownership
 
-Every path in `template-manifest.tsv` has one of four ownership strategies:
+Every path in `template-manifest.tsv` has one of five ownership strategies:
 
 | Strategy | Meaning |
 | --- | --- |
 | `template-owned` | The template is the source of truth. `bin/template-sync` copies updates into consumers and detects local conflicts. |
 | `template-internal` | The template is the source of truth. The file is versioned and release-gated, but never synchronized into consumers. |
+| `template-retired` | The file was template-owned and has been removed from the template. `bin/template-sync` deletes it from consumers when it still matches the locked template version, and reports a conflict otherwise. |
 | `project-config` | The file is required by shared tooling but is configured by each consumer. Synchronization reports it and never overwrites it. |
 | `project-owned` | The consumer is the source of truth. Project-specific documentation, configuration, and application code stay in the consumer. |
 
@@ -70,6 +71,16 @@ Use the second command after reviewing the dry-run output.
 The target must be a Git worktree. The command copies only `template-owned`
 paths; `project-config` and `project-owned` paths are reported and left alone.
 
+`template-retired` paths are removed from the consumer. The path must no longer
+exist in the template checkout. A consumer file that is identical to its
+content at the locked commit is deleted, and directories left empty by the
+removal are pruned; the dry-run reports it as `would remove template-retired`.
+A consumer file that differs from the locked content (or a consumer without a
+lock) is reported as `conflict (retired file changed locally)` and kept; review
+it and either move the content elsewhere or remove it with `--force`. Missing
+retired files are ignored. Keep a path in the manifest as `template-retired`
+until every consumer has synchronized past its removal.
+
 The template source checkout must be clean before synchronization. The command
 rejects uncommitted or staged changes and non-ignored untracked files, because
 the lock records `HEAD` while synchronization reads the current checkout. Run
@@ -111,8 +122,9 @@ For example:
 ./tests/bin/template_sync_test.sh
 ./tests/bin/template_release_test.sh
 ./tests/bin/worktree_test.sh
+./tests/bin/claude_hook_test.sh
 ./bin/template-release-check
-shellcheck bin/project-config.sh \
+shellcheck bin/project-config.sh bin/claude-hook \
   bin/template-sync bin/worktree bin/worktree-lib.sh tests/bin/*.sh
 printf '1.1.0\n' > VERSION
 git diff --check
@@ -202,14 +214,15 @@ consumer or make future consumer changes automatically.
 
 ## Required Checks
 
-Run all four template tests and the shell checks before a release or after a
+Run all template tests and the shell checks before a release or after a
 sync implementation change:
 
 ```sh
 ./tests/bin/project_config_test.sh
 ./tests/bin/template_sync_test.sh
 ./tests/bin/worktree_test.sh
-shellcheck bin/project-config.sh \
+./tests/bin/claude_hook_test.sh
+shellcheck bin/project-config.sh bin/claude-hook \
   bin/template-sync bin/worktree bin/worktree-lib.sh tests/bin/*.sh
 git diff --check
 ```
