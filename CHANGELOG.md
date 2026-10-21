@@ -2,6 +2,23 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Stop synchronizing `tests/bin/template_sync_test.sh` into consumers; it is
+  now `template-internal`. The test asserts template-only state (`VERSION`,
+  `CHANGELOG.md`, release tooling, agent guide content) and always failed in
+  consumers.
+
+### Migration
+
+- Delete the stale template-only files from each consumer:
+  `tests/bin/template_sync_test.sh`, `bin/release`,
+  `bin/template-release-check`, `tests/bin/release_test.sh`,
+  `tests/bin/template_release_test.sh`, and `VERSION`, and remove references
+  to them from the consumer's agent guide.
+
 ## [1.0.0] - 2026-10-21
 
 ### Changed

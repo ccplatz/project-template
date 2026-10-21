@@ -9,7 +9,7 @@ template-owned	bin/claude-hook
 template-owned	bin/worktree
 template-owned	bin/worktree-lib.sh
 template-owned	tests/bin/project_config_test.sh
-template-owned	tests/bin/template_sync_test.sh
+template-internal	tests/bin/template_sync_test.sh
 template-internal	tests/bin/template_release_test.sh
 template-internal	bin/release
 template-internal	tests/bin/release_test.sh

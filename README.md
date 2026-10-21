@@ -84,6 +84,9 @@ Delete any that don't apply to your project and update `CLAUDE.md` accordingly.
 ### Tests
 - `tests/bin/worktree_test.sh` — unit tests for the worktree orchestration script
 - `tests/bin/project_config_test.sh` — unit tests for project configuration
+- `tests/bin/claude_hook_test.sh` — unit tests for the Claude Code hook adapter
+
+Template-only (never synchronized into consumers):
 - `tests/bin/template_sync_test.sh` — unit tests for template synchronization
 - `tests/bin/template_release_test.sh` — unit tests for release consistency checks
 - `tests/bin/release_test.sh` — unit tests for the release workflow script
@@ -184,10 +187,11 @@ git commit -m "Initial commit from project-template"
 ```sh
 ./tests/bin/project_config_test.sh
 ./tests/bin/worktree_test.sh
-./tests/bin/template_sync_test.sh
-./tests/bin/template_release_test.sh
-./tests/bin/release_test.sh
+./tests/bin/claude_hook_test.sh
 ```
+
+The template-only tests (`template_sync_test.sh`, `template_release_test.sh`,
+`release_test.sh`) run only in the project-template repository.
 
 The worktree test requires a Git repository and a `bin/consumer` fixture.
 

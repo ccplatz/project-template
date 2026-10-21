@@ -100,6 +100,7 @@ real_manifest_sync_docs=0
 real_manifest_worktree_docs=0
 real_manifest_project_config=0
 real_manifest_readme=0
+real_manifest_sync_test=0
 real_manifest_runtime_hooks=0
 real_manifest_consumer_skill=0
 real_manifest_container=0
@@ -125,6 +126,9 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     fi
     if [ "$path" = .template/project.conf ]; then
         [ "$strategy" = project-config ] && real_manifest_project_config=1
+    fi
+    if [ "$path" = tests/bin/template_sync_test.sh ]; then
+        [ "$strategy" = template-internal ] && real_manifest_sync_test=1
     fi
     if [ "$path" = README.md ]; then
         [ "$strategy" = project-owned ] && real_manifest_readme=1
@@ -175,6 +179,8 @@ assert_eq 1 "$real_manifest_project_config" \
     'real manifest includes project-config .template/project.conf'
 assert_eq 1 "$real_manifest_readme" \
     'real manifest keeps README.md project-owned'
+assert_eq 1 "$real_manifest_sync_test" \
+    'real manifest keeps the template-only sync test template-internal'
 assert_eq 1 "$real_manifest_runtime_hooks" \
     'real manifest includes template-owned docs/runtime-hooks.md'
 assert_eq 1 "$real_manifest_consumer_skill" \
@@ -313,6 +319,8 @@ assert_contains 'project-config: .template/project.conf' "$real_manifest_output"
     'real manifest reports consumer configuration'
 assert_not_contains 'bin/release' "$real_manifest_output" \
     'real manifest dry-run never mentions internal bin/release'
+assert_not_contains 'template_sync_test.sh' "$real_manifest_output" \
+    'real manifest dry-run never syncs the template-only sync test'
 assert_not_contains 'VERSION' "$real_manifest_output" \
     'real manifest dry-run never mentions internal VERSION'
 
