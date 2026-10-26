@@ -2,6 +2,21 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Added
+
+- `docker/nginx/scripts/backup-sqlite.sh`: shared archive-pre hook for
+  container-backup. It writes a consistent SQLite snapshot (`VACUUM INTO`,
+  `PRAGMA integrity_check`, atomic rename) into `SQLITE_BACKUP_DIR`
+  (default `/var/www/backup`) and exits non-zero on failure.
+
+### Migration
+
+- The script has no project-specific default anymore: set
+  `ENV SQLITE_BACKUP_SOURCE=/var/www/data/<project>.sqlite` in the project's
+  Dockerfile. Without it the script exits with an error.
+
 ## [1.1.0] - 2026-10-21
 
 ### Added

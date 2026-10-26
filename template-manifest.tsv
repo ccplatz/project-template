@@ -27,6 +27,7 @@ template-owned	docs/template-sync.md
 template-owned	docs/worktree.md
 template-owned	docs/runtime-hooks.md
 template-owned	.claude/skills/consumer-runtime-adapter/SKILL.md
+template-owned	docker/nginx/scripts/backup-sqlite.sh
 template-retired	.opencode/plugins/guardrails.ts
 template-retired	.opencode/skills/consumer-runtime-adapter/SKILL.md
 project-owned	.dockerignore
