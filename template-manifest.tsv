@@ -23,9 +23,11 @@ template-owned	.template/project.conf.example
 project-config	.template/project.conf
 template-internal	VERSION
 template-internal	CHANGELOG.md
+template-internal	.github/workflows/ci.yml
 template-owned	docs/template-sync.md
 template-owned	docs/worktree.md
 template-owned	docs/runtime-hooks.md
+template-owned	docs/instructions/template-ownership.instructions.md
 template-owned	.claude/skills/consumer-runtime-adapter/SKILL.md
 template-owned	docker/nginx/scripts/backup-sqlite.sh
 template-retired	.opencode/plugins/guardrails.ts

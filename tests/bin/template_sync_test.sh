@@ -110,6 +110,8 @@ real_manifest_claude_hook=0
 real_manifest_claude_guide=0
 real_manifest_opencode_owned=0
 real_manifest_opencode_retired=0
+real_manifest_ci_workflow=0
+real_manifest_ownership_guide=0
 while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     [[ -z "${strategy:-}" || "$strategy" == \#* ]] && continue
     if [ "$path" = VERSION ]; then
@@ -147,6 +149,13 @@ while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
     fi
     if [ "$path" = CLAUDE.md ] && [ "$strategy" = project-owned ]; then
         real_manifest_claude_guide=1
+    fi
+    if [ "$path" = .github/workflows/ci.yml ] && [ "$strategy" = template-internal ]; then
+        real_manifest_ci_workflow=1
+    fi
+    if [ "$path" = docs/instructions/template-ownership.instructions.md ] \
+        && [ "$strategy" = template-owned ]; then
+        real_manifest_ownership_guide=1
     fi
     case "$path" in
         .opencode/*|opencode.json|AGENTS.md)
@@ -195,6 +204,16 @@ assert_eq 1 "$real_manifest_claude_hook" \
     'real manifest includes template-owned bin/claude-hook'
 assert_eq 1 "$real_manifest_claude_guide" \
     'real manifest keeps CLAUDE.md project-owned'
+assert_eq 1 "$real_manifest_ci_workflow" \
+    'real manifest keeps the template CI workflow template-internal'
+assert_eq 1 "$real_manifest_ownership_guide" \
+    'real manifest includes the template-owned ownership agent guide'
+assert_file_contains "$script_dir/../../CLAUDE.md" \
+    '@docs/instructions/template-ownership.instructions.md' \
+    'agent guide always imports the ownership guide'
+assert_file_contains "$script_dir/../../docs/instructions/template-ownership.instructions.md" \
+    'template-manifest.tsv' \
+    'ownership guide points to the manifest as source of truth'
 assert_eq 0 "$real_manifest_opencode_owned" \
     'real manifest no longer owns any OpenCode path'
 assert_eq 2 "$real_manifest_opencode_retired" \

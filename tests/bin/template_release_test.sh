@@ -61,6 +61,7 @@ printf '# Changelog\n\n## [0.3.0] - 2026-08-09\n' > "$root/CHANGELOG.md"
 printf '#!/bin/bash\n' > "$root/bin/worktree-lib.sh"
 printf '%s\n' \
     $'template-owned\tbin/worktree-lib.sh' \
+    $'template-owned\ttemplate-manifest.tsv' \
     $'template-owned\tVERSION' \
     $'template-owned\tCHANGELOG.md' > "$root/template-manifest.tsv"
 git -C "$root" add .
@@ -81,6 +82,26 @@ assert_status 0 "$release_check" "$root"
 
 printf '# mismatched changelog\n\n## [0.3.0] - 2026-08-09\n' > "$root/CHANGELOG.md"
 assert_failure_contains 'CHANGELOG version' "$release_check" "$root"
+git -C "$root" checkout -- CHANGELOG.md
+
+mkdir -p "$root/.github/workflows"
+printf 'name: CI\n' > "$root/.github/workflows/ci.yml"
+git -C "$root" add .github/workflows/ci.yml
+git -C "$root" commit -q -m 'add unlisted tracked file'
+assert_failure_contains 'Manifest entry missing: .github/workflows/ci.yml' \
+    "$release_check" "$root"
+
+printf 'new\n' > "$root/unlisted-untracked.txt"
+assert_failure_contains 'Manifest entry missing: unlisted-untracked.txt' \
+    "$release_check" "$root"
+rm "$root/unlisted-untracked.txt"
+
+printf 'template-internal\t.github/workflows/ci.yml\n' >> "$root/template-manifest.tsv"
+printf '0.3.2\n' > "$root/VERSION"
+printf '# Changelog\n\n## [0.3.2] - 2026-08-11\n\n## [0.3.1] - 2026-08-10\n' > "$root/CHANGELOG.md"
+git -C "$root" add template-manifest.tsv VERSION CHANGELOG.md
+git -C "$root" commit -q -m 'classify ci workflow'
+assert_status 0 "$release_check" "$root"
 
 if [ "$failures" -ne 0 ]; then
     printf '%s test(s) failed\n' "$failures" >&2

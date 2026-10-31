@@ -26,6 +26,27 @@ manifest_file="$root/template-manifest.tsv"
 [ -f "$changelog_file" ] || die "CHANGELOG.md missing: $changelog_file"
 [ -f "$manifest_file" ] || die "Manifest missing: $manifest_file"
 
+# Every repository file must carry an explicit ownership strategy so that
+# agents and tooling never have to guess whether a file belongs to the
+# template or to a consumer.
+declare -A manifest_paths=()
+while IFS=$'\t' read -r strategy path || [ -n "${strategy:-}" ]; do
+    case "$strategy" in
+        '' | '#'*) continue ;;
+    esac
+    manifest_paths[$path]=1
+done < "$manifest_file"
+
+missing_paths=()
+while IFS= read -r -d '' repo_path; do
+    [ -n "${manifest_paths[$repo_path]+set}" ] || missing_paths+=("$repo_path")
+done < <(git -C "$root" ls-files -z --cached --others --exclude-standard 2>/dev/null | sort -zu)
+
+if [ "${#missing_paths[@]}" -gt 0 ]; then
+    printf 'Manifest entry missing: %s\n' "${missing_paths[@]}" >&2
+    die 'Classify every repository file in template-manifest.tsv.'
+fi
+
 version=$(<"$version_file")
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
     die "VERSION must match major.minor.patch: $version"

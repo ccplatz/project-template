@@ -6,6 +6,13 @@ This repository is maintained in English. All documentation, commit messages,
 code comments, and user-facing output must be written in English. Do not
 introduce German text in changelog entries, docs, or code.
 
+## Template ownership
+
+Always applies. Template files and project files live side by side; ownership
+is defined only by `template-manifest.tsv`:
+
+@docs/instructions/template-ownership.instructions.md
+
 ## Further instructions
 
 <!-- TODO: Remove unneeded instructions files from the list below. -->

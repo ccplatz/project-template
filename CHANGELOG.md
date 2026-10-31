@@ -2,6 +2,37 @@
 
 All notable changes to this template are documented here.
 
+## [Unreleased]
+
+### Added
+
+- `docs/instructions/template-ownership.instructions.md`: template-owned agent
+  guide that makes `template-manifest.tsv` the only source of truth for file
+  ownership and forbids inferring consumer capabilities (for example a CI
+  pipeline) from template files. `CLAUDE.md` imports it so it is always loaded.
+- `bin/template-release-check` fails with `Manifest entry missing: <path>` when
+  a tracked or untracked, non-ignored file of the template repository is not
+  listed in `template-manifest.tsv`.
+
+### Fixed
+
+- `.github/workflows/ci.yml` is now classified as `template-internal`; it was
+  missing from the manifest.
+
+### Migration
+
+- `CLAUDE.md` is project-owned and is not synchronized. Add the import to the
+  consumer's `CLAUDE.md` after synchronizing:
+
+  ```md
+  ## Template ownership
+
+  Always applies. Template files and project files live side by side; ownership
+  is defined only by `template-manifest.tsv`:
+
+  @docs/instructions/template-ownership.instructions.md
+  ```
+
 ## [1.2.0] - 2026-10-26
 
 ### Added

@@ -71,6 +71,8 @@ printf '%s\n' \
     $'template-owned\tVERSION' \
     $'template-owned\tCHANGELOG.md' \
     $'template-owned\tbin/worktree-lib.sh' \
+    $'template-internal\tbin/template-release-check' \
+    $'template-owned\ttemplate-manifest.tsv' \
     $'template-owned\ttests/bin/template_sync_test.sh' > "$root/template-manifest.tsv"
 printf '%s\n' \
     '#!/bin/bash' \
